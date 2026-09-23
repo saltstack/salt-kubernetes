@@ -37,6 +37,10 @@ agent:
   # constant to pin. runAsNonRoot alone still gets enforced.
   podSecurityContext:
     runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    fsGroupChangePolicy: OnRootMismatch
 
   # No added capabilities: when agent.jobCache.persistence.enabled mounts a
   # PVC at /var/cache/salt/master/jobs, it comes back root-owned regardless

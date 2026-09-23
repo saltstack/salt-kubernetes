@@ -40,7 +40,12 @@ RUN apt-get update \
 #
 # bootstrap.saltproject.io was decommissioned in Jan 2025; the script now
 # ships as a GitHub release asset of saltstack/salt-bootstrap instead.
-RUN set -eu; \
+RUN --mount=type=secret,id=build_ca,target=/tmp/build-ca.crt,required=false \
+    set -eu; \
+    if [ -s /tmp/build-ca.crt ]; then \
+        cp /tmp/build-ca.crt /usr/local/share/ca-certificates/build-ca.crt; \
+        update-ca-certificates; \
+    fi; \
     curl -fsSL -o /tmp/bootstrap-salt.sh \
         https://github.com/saltstack/salt-bootstrap/releases/latest/download/bootstrap-salt.sh; \
     curl -fsSL -o /tmp/bootstrap-salt.sh.sha256 \
@@ -53,29 +58,45 @@ RUN set -eu; \
     else \
         sh /tmp/bootstrap-salt.sh -X -N -M -P onedir "$SALT_VERSION"; \
     fi; \
-    rm -f /tmp/bootstrap-salt.sh /tmp/bootstrap-salt.sh.sha256 /tmp/bootstrap-salt.sh.sha256.check
+    rm -f /tmp/bootstrap-salt.sh \
+          /tmp/bootstrap-salt.sh.sha256 \
+          /tmp/bootstrap-salt.sh.sha256.check; \
+    if [ -s /tmp/build-ca.crt ]; then \
+        rm -f /usr/local/share/ca-certificates/build-ca.crt; \
+        update-ca-certificates >/dev/null; \
+    fi
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Non-root: the onedir bootstrap install doesn't reliably create a system
-# 'salt' user the way the Debian/Ubuntu apt packages do (that's a distro
-# packaging postinst step, not part of the onedir tarball), so create one
-# ourselves if it isn't already there, then own everything the master
-# writes to at runtime. Pinned to uid/gid 999 (matching what salt-common's
-# own postinst allocates in the apt-based minion images, empirically) -
-# USER below must be numeric, not the name, or Kubernetes' runAsNonRoot
-# check can't verify it without resolving /etc/passwd inside the image,
-# and refuses to start the container at all ("cannot verify user is
-# non-root").
-RUN id salt >/dev/null 2>&1 || useradd --system --uid 999 --no-create-home --shell /usr/sbin/nologin salt; \
-    mkdir -p /etc/salt/pki/master /var/cache/salt/master /var/run/salt/master /var/log/salt; \
-    chown -R salt:salt /etc/salt /var/cache/salt /var/run/salt /var/log/salt
+# The bootstrap installation may create the salt account with a
+# distribution-dependent UID/GID. Normalize it to 10001:10001 so
+# Kubernetes can verify runAsNonRoot and directory ownership always matches.
+# USER must remain numeric because Kubernetes cannot reliably verify a
+# named image user when runAsNonRoot is enabled.
+RUN set -eux; \
+    if id salt >/dev/null 2>&1; then \
+        groupmod --gid 10001 salt; \
+        usermod --uid 10001 --gid 10001 salt; \
+    else \
+        groupadd --system --gid 10001 salt; \
+        useradd --system --uid 10001 --gid 10001 \
+            --no-create-home --shell /usr/sbin/nologin salt; \
+    fi; \
+    mkdir -p /etc/salt/pki/master \
+             /var/cache/salt/master \
+             /var/run/salt/master \
+             /var/log/salt; \
+    chown -R 10001:10001 \
+        /etc/salt \
+        /var/cache/salt \
+        /var/run/salt \
+        /var/log/salt
 
-USER 999:999
+USER 10001:10001
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-  CMD ["/usr/bin/tini", "--", "salt-master", "-d"]
+    CMD nc -z 127.0.0.1 4505 && nc -z 127.0.0.1 4506s
 
 VOLUME ["/etc/salt/pki/master"]
 

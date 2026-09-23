@@ -19,3 +19,4 @@ dependencies:
   - name: salt-key-operator
     version: ">=0.0.0"
     repository: "file://../salt-key-operator"
+    condition: agent.trustedMinions.enabled
