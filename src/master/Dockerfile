@@ -96,7 +96,7 @@ RUN set -eux; \
 USER 10001:10001
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD nc -z 127.0.0.1 4505 && nc -z 127.0.0.1 4506s
+  CMD ["/bin/sh", "-c", "nc -z 127.0.0.1 4505 && nc -z 127.0.0.1 4506"]
 
 VOLUME ["/etc/salt/pki/master"]
 
