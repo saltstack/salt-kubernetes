@@ -20,7 +20,7 @@ spec:
         app: salt-minion
         app.kubernetes.io/name: salt-minion
     spec:
-      {{- $keySecret := .Values.agent.minion.keySecretName | default (printf "salt-minion-%s-key" .Release.Name) }}
+      {{- $keySecret := .Values.agent.minion.keySecretName | default (printf "%s-keys" .Release.Name) }}
       serviceAccountName: {{ .Values.serviceAccount.name }}
       {{- if .Values.agent.nodeSelector }}
       nodeSelector:
@@ -84,14 +84,31 @@ spec:
             - name: minion-keys
               mountPath: /etc/salt/pki
               readOnly: true
+          livenessProbe:
+            exec:
+              command:
+                - salt-call
+                - --local
+                - test.ping
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - salt-call
+                - --local
+                - test.ping
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
           securityContext:
             {{- toYaml .Values.agent.containerSecurityContext | nindent 12 }}
       volumes:
         - name: minion-keys
           secret:
             secretName: {{ $keySecret }}
-        - name: minion-config
-          configMap:
-            name: {{ .Release.Name }}-minion-config
 {{- end }}
 
