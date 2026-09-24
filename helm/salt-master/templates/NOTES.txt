@@ -1,25 +1,26 @@
-salt-master has been installed ({{ .Values.agent.replicas }} replica{{ if gt (int .Values.agent.replicas) 1 }}s{{ end }}).
+Salt Master has been installed successfully.
 
-Check pods:
+Check the workload:
+
   kubectl -n {{ .Values.namespace }} get pods -l app=salt-master
 
-{{- if gt (int .Values.agent.replicas) 1 }}
+Check the Salt Master logs:
 
-Active-active mode: every replica shares the identical keypair from
-agent.masterKeySecretName. Each replica is an independent Salt master
-process - a minion needs a live connection to EVERY replica it should be
-reachable from (Salt's own multi-master mode, not just failover - see
-https://docs.saltproject.io/en/3006/topics/tutorials/multimaster.html).
-Point a minion's `master:` config at a list of all replica addresses:
-  in-cluster:  salt-master-<N>.salt-master-headless.{{ .Values.namespace }}.svc.cluster.local
-  external:    set service.perOrdinal.enabled=true for one NodePort per replica
-{{- end }}
+  kubectl -n {{ .Values.namespace }} logs deployment/salt-master \
+    --container salt-master
+
+List known minion keys:
+
+  kubectl -n {{ .Values.namespace }} exec deployment/salt-master \
+    --container salt-master \
+    -- salt-key -L
 
 {{- if .Values.agent.trustedMinions.enabled }}
 
-Minion acceptance is delegated to salt-key-operator (../salt-key-operator) -
-`salt-key -a` will NOT work against this master. Trust a minion by applying
-a SaltMinionKey in this SAME namespace ({{ .Values.namespace }}):
+Minion trust is managed declaratively by salt-key-operator.
+
+Create a SaltMinionKey in namespace "{{ .Values.namespace }}":
+
   apiVersion: salt.saltstack.io/v1alpha1
   kind: SaltMinionKey
   metadata:
@@ -32,15 +33,26 @@ a SaltMinionKey in this SAME namespace ({{ .Values.namespace }}):
       ...
       -----END PUBLIC KEY-----
 
-ConfigMap salt-key-operator manages: {{ .Values.agent.trustedMinions.configMapName }}
+Trusted-minions ConfigMap:
+
+  {{ .Values.agent.trustedMinions.configMapName }}
+
+ConfigMap propagation through kubelet can take approximately one minute,
+plus the sidecar polling interval of
+{{ .Values.agent.trustedMinions.syncIntervalSeconds }} seconds.
+
 {{- else }}
 
-Accept a new minion's key the traditional way:
-  kubectl -n {{ .Values.namespace }} exec -it salt-master-0 -- salt-key -L
-  kubectl -n {{ .Values.namespace }} exec -it salt-master-0 -- salt-key -a '<minion-id>'
-{{- if gt (int .Values.agent.replicas) 1 }}
-(repeat against every replica - -0, -1, ... - acceptance is per-pod local
-without salt-key-operator; set agent.trustedMinions.enabled=true instead of
-doing this by hand across replicas.)
-{{- end }}
+salt-key-operator integration is disabled.
+
+Accept a pending minion manually:
+
+  kubectl -n {{ .Values.namespace }} exec deployment/salt-master \
+    --container salt-master \
+    -- salt-key -a '<minion-id>'
+
+Warning: manually accepted minion keys are stored in the pod's writable
+temporary PKI volume and do not survive a Salt Master pod replacement.
+Enable agent.trustedMinions.enabled for persistent declarative trust.
+
 {{- end }}

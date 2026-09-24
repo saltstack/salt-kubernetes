@@ -1,11 +1,11 @@
-{{- if .Values.rbac.create }}
+{{- if and .Values.rbac.create (not .Values.agent.minion.keySecretName) }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: {{ .Release.Name }}-minion-keygen-role
   namespace: {{ .Values.namespace }}
 rules:
-- apiGroups: [""]
-  resources: ["secrets"]
-  verbs: ["create","get","list"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get", "list"]
 {{- end }}

@@ -1,38 +1,51 @@
 {{- $masterKeySecret := .Values.agent.masterKeySecretName | default (printf "%s-master-keys" .Release.Name) -}}
+{{- $existingMasterKeySecret := lookup "v1" "Secret" .Values.namespace $masterKeySecret -}}
+{{- if not $existingMasterKeySecret }}
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: {{ .Release.Name }}-master-keygen
   namespace: {{ .Values.namespace }}
-  annotations:
-    "helm.sh/hook": pre-install,pre-upgrade
-    "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
 spec:
   backoffLimit: 3
   template:
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
+      # The normal Salt Master pod does not need an API token, but this
+      # one-time key-generation Job needs one to create the Secret.
+      automountServiceAccountToken: true
       restartPolicy: OnFailure
       containers:
         - name: master-keygen
           image: bitnami/kubectl:latest
-          command: ["/bin/sh","-c"]
+          command: ["/bin/sh", "-c"]
           args:
             - |
-              set -e
+              set -eu
 
-              secret={{ $masterKeySecret }}
-              ns={{ .Values.namespace }}
+              secret={{ $masterKeySecret | quote }}
+              namespace={{ .Values.namespace | quote }}
 
-              if kubectl get secret "$secret" -n "$ns" >/dev/null 2>&1; then
-                echo "Secret $secret already exists – skipping generation"
+              if kubectl get secret "$secret" -n "$namespace" >/dev/null 2>&1; then
+                echo "Secret $secret already exists; skipping generation"
                 exit 0
               fi
 
-              TMP=$(mktemp -d)
-              openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$TMP/master.pem"
-              openssl rsa -pubout -in "$TMP/master.pem" -out "$TMP/master.pub"
+              temporary_directory="$(mktemp -d)"
+              trap 'rm -rf "$temporary_directory"' EXIT
 
-              kubectl create secret generic "$secret" -n "$ns" \
-                --from-file=master.pem="$TMP/master.pem" \
-                --from-file=master.pub="$TMP/master.pub"
+              openssl genpkey \
+                -algorithm RSA \
+                -pkeyopt rsa_keygen_bits:2048 \
+                -out "$temporary_directory/master.pem"
+
+              openssl rsa \
+                -pubout \
+                -in "$temporary_directory/master.pem" \
+                -out "$temporary_directory/master.pub"
+
+              kubectl create secret generic "$secret" \
+                -n "$namespace" \
+                --from-file=master.pem="$temporary_directory/master.pem" \
+                --from-file=master.pub="$temporary_directory/master.pub"
+{{- end }}
