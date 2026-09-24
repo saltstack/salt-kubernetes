@@ -1,0 +1,111 @@
+# Salt Minion VCF - Test Configuration
+# Usage: helm install salt-minion-vcf ./helm/salt-minion-vcf -f test-values-vcf-minion.yaml
+
+image:
+  repository: ghcr.io/saltstack/salt-kubernetes/salt-minion-vcf
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# StatefulSet recommended for stable minion identity
+workload:
+  kind: StatefulSet
+  replicas: 1
+
+salt:
+  # Salt master configuration
+  master: salt-master.salt.svc.cluster.local
+  masterPort: 4506
+  publishPort: 4505
+  masterFinger: ""
+
+  # Logging level
+  logLevel: info
+
+  # Minion ID - leave empty to use stable StatefulSet pod name
+  minionId: ""
+
+  # Master connection settings
+  masterTries: -1
+  retryDns: 30
+
+  # Extra minion configuration (optional)
+  extraMinionConfig: {}
+
+  # Use local pillar roots instead of asking master
+  # Requires pillar.secretName to be set
+  fileClientLocal: false
+
+# Vault integration (optional)
+vault:
+  addr: ""
+  authMethod: approle
+  roleId: ""
+  sdbProfile: vault_sdb
+  # Name of EXISTING Secret with vault credentials
+  secretName: ""
+
+# Persistence for stable PKI across pod restarts
+persistence:
+  enabled: true
+  storageClass: ""  # Uses cluster default if empty
+  accessModes:
+    - ReadWriteOnce
+  size: 256Mi
+  annotations: {}
+
+# Pillar configuration (optional but recommended)
+pillar:
+  # Name of EXISTING Secret with VCF pillar data
+  # Must include top.sls and vcenter.sls
+  secretName: ""
+
+# Resource requests and limits
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10000
+  runAsGroup: 10000
+  fsGroup: 10000
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  capabilities:
+    drop:
+      - ALL
+
+# Health checks
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 20
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 10
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+# Graceful shutdown period
+terminationGracePeriodSeconds: 30
+
+# Pod annotations and labels
+podAnnotations: {}
+podLabels: {}
+
+# Node affinity
+nodeSelector: {}
+affinity: {}
+tolerations: []
