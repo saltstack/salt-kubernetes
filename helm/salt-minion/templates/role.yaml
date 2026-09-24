@@ -13,8 +13,10 @@ rules:
   - apiGroups: ["*"]
     resources: ["*"]
     verbs: ["*"]
-{{- else }}
+{{- else if .Values.rbac.customRoleRules }}
 rules:
-{{ toYaml .Values.rbac.customRoleRules | nindent 2 }}
+  {{- toYaml .Values.rbac.customRoleRules | nindent 2 }}
+{{- else }}
+rules: []
 {{- end }}
 {{- end }}

@@ -14,13 +14,11 @@ rules:
     verbs: ["*"]
 {{- else }}
 rules:
-  # nodes is cluster-scoped -- a namespaced Role/RoleBinding (see role.yaml)
-  # is never consulted for cluster-scoped resources, regardless of its
-  # rules, so kube_bench_cache._create_assessment_job's node-count lookup
-  # (kubernetes.nodes) needs a ClusterRole/ClusterRoleBinding instead.
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get", "list"]
-{{ toYaml .Values.rbac.customClusterRoleRules | nindent 2 }}
+  {{- with .Values.rbac.customClusterRoleRules }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
 {{- end }}
 {{- end }}
