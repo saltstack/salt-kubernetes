@@ -1,0 +1,57 @@
+suite: keygen job image
+templates:
+  - templates/keygen-job.yaml
+tests:
+  - it: renders the default keygen image
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "keygen")].image
+          value: docker.io/bitnami/kubectl:latest
+
+  - it: uses the global registry and image pull secret for keygen
+    set:
+      global.imageRegistry: mirror.example
+      agent.keygenImage.registry: ""
+      agent.keygenImage.imagePullSecrets:
+        - name: registry-secret
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "keygen")].image
+          value: mirror.example/bitnami/kubectl:latest
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: registry-secret
+
+  - it: gives keygen registry precedence over global
+    set:
+      global.imageRegistry: mirror.example
+      agent.keygenImage.registry: custom.example
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "keygen")].image
+          value: custom.example/bitnami/kubectl:latest
+
+  - it: applies global pull secrets to keygen
+    set:
+      global.imagePullSecrets:
+        - name: global-secret
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: global-secret
+
+  - it: lets keygen pull secrets override global secrets
+    set:
+      global.imagePullSecrets:
+        - name: global-secret
+      agent.image.imagePullSecrets:
+        - name: minion-secret
+      agent.keygenImage.imagePullSecrets:
+        - name: keygen-secret
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: keygen-secret

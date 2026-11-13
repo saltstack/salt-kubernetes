@@ -1,0 +1,55 @@
+suite: minion deployment image
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: renders the default minion image
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "salt-minion")].image
+          value: ghcr.io/saltstack/salt-kubernetes/salt-minion:0.1.0
+
+  - it: uses the global registry and image pull secret for the minion
+    set:
+      global.imageRegistry: mirror.example:5000
+      agent.image.registry: ""
+      agent.image.imagePullSecrets:
+        - name: registry-secret
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "salt-minion")].image
+          value: mirror.example:5000/saltstack/salt-kubernetes/salt-minion:0.1.0
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: registry-secret
+
+  - it: gives minion registry precedence over global
+    set:
+      global.imageRegistry: mirror.example
+      agent.image.registry: custom.example
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "salt-minion")].image
+          value: custom.example/saltstack/salt-kubernetes/salt-minion:0.1.0
+
+  - it: applies global pull secrets to the minion
+    set:
+      global.imagePullSecrets:
+        - name: global-secret
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: global-secret
+
+  - it: lets minion pull secrets override global secrets
+    set:
+      global.imagePullSecrets:
+        - name: global-secret
+      agent.image.imagePullSecrets:
+        - name: agent-secret
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: agent-secret
