@@ -2,7 +2,17 @@
 # Must match the namespace used in kube-bench-job.
 namespace: salt
 
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+
 agent:
+  keygenImage:
+    imagePullSecrets: []
+    registry: docker.io
+    repository: bitnami/kubectl
+    tag: latest
+    pullPolicy: IfNotPresent
   # Deployment mode:
   #   in_cluster — deploy the Salt minion as a Kubernetes Deployment (default)
   #   external   — create RBAC only; the minion runs outside the cluster
@@ -43,14 +53,16 @@ agent:
 
   # ── in_cluster mode settings ──────────────────────────────────────────────
   image:
+    imagePullSecrets: []
+    registry: ghcr.io
     # Published by this repo (see ../docs/releasing.md and CHANGELOG.md for
     # exactly which Salt/extension versions this tag carries) - preloaded
     # with saltext.vault and saltext.kubernetes on top of core Salt. Point
     # this at a plain saltstack/salt image instead if you don't need either
     # extension.
-    repository: ghcr.io/saltstack/salt-kubernetes/salt-minion
+    repository: saltstack/salt-kubernetes/salt-minion
     # To use VCF extensions, set repository to the VCF image (e.g., salt-minion-vcf) and appropriate tag
-    # repository: ghcr.io/saltstack/salt-kubernetes/salt-minion-vcf
+    # repository: saltstack/salt-kubernetes/salt-minion-vcf
     tag: "0.1.0"
     pullPolicy: IfNotPresent
 
