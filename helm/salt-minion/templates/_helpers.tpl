@@ -1,37 +1,14 @@
-{{/* Per-image registry overrides the global registry. */}}
+{{/* Format an image repository and tag. */}}
 {{- define "salt-minion.image" -}}
-{{- $registry := .image.registry | default .global.imageRegistry -}}
-{{- if $registry -}}
-{{- printf "%s/%s:%s" (trimSuffix "/" $registry) .image.repository (toString .image.tag) -}}
-{{- else -}}
-{{- printf "%s:%s" .image.repository (toString .image.tag) -}}
-{{- end -}}
+{{- printf "%s:%s" .repository (toString .tag) -}}
 {{- end -}}
 
 {{/* Resolve the minion image from chart values. */}}
 {{- define "salt-minion.agentImage" -}}
-{{- include "salt-minion.image" (dict "image" .Values.agent.image "global" .Values.global) -}}
+{{- include "salt-minion.image" .Values.agent.image -}}
 {{- end -}}
 
 {{/* Resolve the key-generation image from chart values. */}}
 {{- define "salt-minion.keygenImage" -}}
-{{- include "salt-minion.image" (dict "image" .Values.keygen.image "global" .Values.global) -}}
-{{- end -}}
-
-{{/* Per-image pull secrets override global pull secrets. */}}
-{{- define "salt-minion.imagePullSecrets" -}}
-{{- with (.image.imagePullSecrets | default .global.imagePullSecrets) -}}
-imagePullSecrets:
-{{ toYaml . | indent 2 }}
-{{- end -}}
-{{- end -}}
-
-{{/* Resolve pull secrets for the minion image. */}}
-{{- define "salt-minion.agentImagePullSecrets" -}}
-{{- include "salt-minion.imagePullSecrets" (dict "image" .Values.agent.image "global" .Values.global) -}}
-{{- end -}}
-
-{{/* Resolve pull secrets for the key-generation image. */}}
-{{- define "salt-minion.keygenImagePullSecrets" -}}
-{{- include "salt-minion.imagePullSecrets" (dict "image" .Values.keygen.image "global" .Values.global) -}}
+{{- include "salt-minion.image" .Values.keygen.image -}}
 {{- end -}}

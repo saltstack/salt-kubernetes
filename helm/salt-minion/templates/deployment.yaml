@@ -22,8 +22,9 @@ spec:
         app.kubernetes.io/name: salt-minion
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
-      {{- with (include "salt-minion.agentImagePullSecrets" .) }}
-      {{- . | nindent 6 }}
+      {{- with .Values.agent.image.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
       {{- end }}
 
       {{- with .Values.agent.nodeSelector }}

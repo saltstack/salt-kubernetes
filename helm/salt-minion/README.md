@@ -183,19 +183,15 @@ See [values.yaml](values.yaml) for the complete list of configuration options.
 | Parameter | Description | Default |
 | --- | --- | --- |
 | `namespace` | Kubernetes namespace for deployment | `salt` |
-| `global.imageRegistry` | Registry shared by both images, unless overridden | `""` |
-| `global.imagePullSecrets` | Pull Secret references used when image-specific pull Secrets are empty | `[]` |
 | `agent.authMode` | `in_cluster` or `external` | `in_cluster` |
-| `agent.image.registry` | Minion image registry; overrides the global registry | `ghcr.io` |
-| `agent.image.repository` | Minion image repository path, without registry | `saltstack/salt-kubernetes/salt-minion` |
+| `agent.image.repository` | Minion image repository | `ghcr.io/saltstack/salt-kubernetes/salt-minion` |
 | `agent.image.tag` | Image tag/version | `0.1.0` |
 | `agent.image.pullPolicy` | Image pull policy | `IfNotPresent` |
-| `agent.image.imagePullSecrets` | Minion pull Secrets; overrides the global list | `[]` |
-| `keygen.image.registry` | Keygen image registry; overrides the global registry | `docker.io` |
-| `keygen.image.repository` | Keygen image repository path, without registry | `bitnami/kubectl` |
+| `agent.image.imagePullSecrets` | Minion pull Secrets | `[]` |
+| `keygen.image.repository` | Keygen image repository | `bitnami/kubectl` |
 | `keygen.image.tag` | Keygen image tag | `latest` |
-| `keygen.image.pullPolicy` | Keygen image pull policy | `IfNotPresent` |
-| `keygen.image.imagePullSecrets` | Keygen pull Secrets; overrides the global list | `[]` |
+| `keygen.image.pullPolicy` | Keygen image pull policy | `Always` |
+| `keygen.image.imagePullSecrets` | Keygen pull Secrets | `[]` |
 | `agent.saltMasterHost` | Salt master hostname or comma-separated list (REQUIRED) | `""` |
 | `agent.saltMasterPort` | Master request/return port | `4506` |
 | `agent.saltPublishPort` | Master publish port | `4505` |
@@ -209,12 +205,6 @@ See [values.yaml](values.yaml) for the complete list of configuration options.
 | `rbac.create` | Create RBAC resources | `true` |
 | `rbac.fullAccess` | Grant full cluster admin rights | `true` |
 | `serviceAccount.name` | ServiceAccount name | `salt-minion` |
-
-### Image configuration
-
-A non-empty image-specific `registry` or `imagePullSecrets` value takes
-precedence over the corresponding global value. If it is empty, the image uses
-the global value.
 
 ### Persistence
 

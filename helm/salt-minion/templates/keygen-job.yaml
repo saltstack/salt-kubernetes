@@ -11,8 +11,9 @@ spec:
   template:
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
-      {{- with (include "salt-minion.keygenImagePullSecrets" .) }}
-      {{- . | nindent 6 }}
+      {{- with .Values.keygen.image.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
       {{- end }}
       automountServiceAccountToken: true
       restartPolicy: OnFailure
