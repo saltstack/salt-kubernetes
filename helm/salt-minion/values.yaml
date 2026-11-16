@@ -7,12 +7,6 @@ global:
   imagePullSecrets: []
 
 agent:
-  keygenImage:
-    imagePullSecrets: []
-    registry: docker.io
-    repository: bitnami/kubectl
-    tag: latest
-    pullPolicy: IfNotPresent
   # Deployment mode:
   #   in_cluster — deploy the Salt minion as a Kubernetes Deployment (default)
   #   external   — create RBAC only; the minion runs outside the cluster
@@ -182,6 +176,14 @@ agent:
   # whose disk holds the persisted keypair, e.g. {kubernetes.io/hostname: k8s-cp}.
   # `kubectl get nodes` for hostnames.
   nodeSelector: {}
+
+keygen:
+  image:
+    imagePullSecrets: []
+    registry: docker.io
+    repository: bitnami/kubectl
+    tag: latest
+    pullPolicy: Always
 
 serviceAccount:
   name: salt-minion

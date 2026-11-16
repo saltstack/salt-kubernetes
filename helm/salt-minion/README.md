@@ -191,11 +191,11 @@ See [values.yaml](values.yaml) for the complete list of configuration options.
 | `agent.image.tag` | Image tag/version | `0.1.0` |
 | `agent.image.pullPolicy` | Image pull policy | `IfNotPresent` |
 | `agent.image.imagePullSecrets` | Minion pull Secrets; overrides the global list | `[]` |
-| `agent.keygenImage.registry` | Keygen image registry; overrides the global registry | `docker.io` |
-| `agent.keygenImage.repository` | Keygen image repository path, without registry | `bitnami/kubectl` |
-| `agent.keygenImage.tag` | Keygen image tag | `latest` |
-| `agent.keygenImage.pullPolicy` | Keygen image pull policy | `IfNotPresent` |
-| `agent.keygenImage.imagePullSecrets` | Keygen pull Secrets; overrides the global list | `[]` |
+| `keygen.image.registry` | Keygen image registry; overrides the global registry | `docker.io` |
+| `keygen.image.repository` | Keygen image repository path, without registry | `bitnami/kubectl` |
+| `keygen.image.tag` | Keygen image tag | `latest` |
+| `keygen.image.pullPolicy` | Keygen image pull policy | `IfNotPresent` |
+| `keygen.image.imagePullSecrets` | Keygen pull Secrets; overrides the global list | `[]` |
 | `agent.saltMasterHost` | Salt master hostname or comma-separated list (REQUIRED) | `""` |
 | `agent.saltMasterPort` | Master request/return port | `4506` |
 | `agent.saltPublishPort` | Master publish port | `4505` |

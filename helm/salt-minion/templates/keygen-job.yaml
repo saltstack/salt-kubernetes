@@ -19,7 +19,7 @@ spec:
       containers:
         - name: keygen
           image: {{ include "salt-minion.keygenImage" . | quote }}
-          imagePullPolicy: {{ .Values.agent.keygenImage.pullPolicy }}
+          imagePullPolicy: {{ .Values.keygen.image.pullPolicy }}
           command: ["/bin/sh", "-c"]
           args:
             - |

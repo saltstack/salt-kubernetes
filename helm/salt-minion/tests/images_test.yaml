@@ -1,0 +1,109 @@
+suite: workload images
+templates:
+  - templates/deployment.yaml
+  - templates/keygen-job.yaml
+tests:
+  - it: renders the default images
+    asserts:
+      - template: templates/deployment.yaml
+        equal:
+          path: spec.template.spec.containers[?(@.name == "salt-minion")].image
+          value: ghcr.io/saltstack/salt-kubernetes/salt-minion:0.1.0
+      - template: templates/keygen-job.yaml
+        equal:
+          path: spec.template.spec.containers[?(@.name == "keygen")].image
+          value: docker.io/bitnami/kubectl:latest
+
+  - it: preserves quoted tags with trailing zeros
+    set:
+      agent.image.tag: '1.10'
+      keygen.image.tag: '1.10'
+    asserts:
+      - template: templates/deployment.yaml
+        equal:
+          path: spec.template.spec.containers[?(@.name == "salt-minion")].image
+          value: ghcr.io/saltstack/salt-kubernetes/salt-minion:1.10
+      - template: templates/keygen-job.yaml
+        equal:
+          path: spec.template.spec.containers[?(@.name == "keygen")].image
+          value: docker.io/bitnami/kubectl:1.10
+
+  - it: renders numeric tags
+    set:
+      agent.image.tag: 123
+      keygen.image.tag: 123
+    asserts:
+      - template: templates/deployment.yaml
+        equal:
+          path: spec.template.spec.containers[?(@.name == "salt-minion")].image
+          value: ghcr.io/saltstack/salt-kubernetes/salt-minion:123
+      - template: templates/keygen-job.yaml
+        equal:
+          path: spec.template.spec.containers[?(@.name == "keygen")].image
+          value: docker.io/bitnami/kubectl:123
+
+  - it: uses the global registry when image registries are empty
+    set:
+      global.imageRegistry: mirror.example:5000
+      agent.image.registry: ''
+      keygen.image.registry: ''
+    asserts:
+      - template: templates/deployment.yaml
+        equal:
+          path: spec.template.spec.containers[?(@.name == "salt-minion")].image
+          value: mirror.example:5000/saltstack/salt-kubernetes/salt-minion:0.1.0
+      - template: templates/keygen-job.yaml
+        equal:
+          path: spec.template.spec.containers[?(@.name == "keygen")].image
+          value: mirror.example:5000/bitnami/kubectl:latest
+
+  - it: gives image registries precedence over the global registry
+    set:
+      global.imageRegistry: mirror.example
+      agent.image.registry: agent.example
+      keygen.image.registry: keygen.example
+    asserts:
+      - template: templates/deployment.yaml
+        equal:
+          path: spec.template.spec.containers[?(@.name == "salt-minion")].image
+          value: agent.example/saltstack/salt-kubernetes/salt-minion:0.1.0
+      - template: templates/keygen-job.yaml
+        equal:
+          path: spec.template.spec.containers[?(@.name == "keygen")].image
+          value: keygen.example/bitnami/kubectl:latest
+
+  - it: applies global pull secrets to both workloads
+    set:
+      global.imagePullSecrets:
+        - name: global-secret
+    asserts:
+      - template: templates/deployment.yaml
+        equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: global-secret
+      - template: templates/keygen-job.yaml
+        equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: global-secret
+
+  - it: gives each image pull secrets precedence over global secrets
+    set:
+      global.imagePullSecrets:
+        - name: global-secret
+      agent.image.imagePullSecrets:
+        - name: agent-secret
+      keygen.image.imagePullSecrets:
+        - name: keygen-secret
+    asserts:
+      - template: templates/deployment.yaml
+        equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: agent-secret
+      - template: templates/keygen-job.yaml
+        equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: keygen-secret
