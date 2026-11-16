@@ -184,9 +184,14 @@ See [values.yaml](values.yaml) for the complete list of configuration options.
 | --- | --- | --- |
 | `namespace` | Kubernetes namespace for deployment | `salt` |
 | `agent.authMode` | `in_cluster` or `external` | `in_cluster` |
-| `agent.image.repository` | Docker image repository | `ghcr.io/saltstack/salt-kubernetes/salt-minion` |
+| `agent.image.repository` | Minion image repository | `ghcr.io/saltstack/salt-kubernetes/salt-minion` |
 | `agent.image.tag` | Image tag/version | `0.1.0` |
 | `agent.image.pullPolicy` | Image pull policy | `IfNotPresent` |
+| `agent.image.imagePullSecrets` | Minion pull Secrets | `[]` |
+| `keygen.image.repository` | Keygen image repository | `bitnami/kubectl` |
+| `keygen.image.tag` | Keygen image tag | `latest` |
+| `keygen.image.pullPolicy` | Keygen image pull policy | `Always` |
+| `keygen.image.imagePullSecrets` | Keygen pull Secrets | `[]` |
 | `agent.saltMasterHost` | Salt master hostname or comma-separated list (REQUIRED) | `""` |
 | `agent.saltMasterPort` | Master request/return port | `4506` |
 | `agent.saltPublishPort` | Master publish port | `4505` |
