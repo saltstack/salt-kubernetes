@@ -1,53 +1,78 @@
 # Helm Test Workflow
 
-This document outlines a reproducible workflow to **test Helm charts on a real Kubernetes cluster** using the local Harbor registry.
+A reproducible way to test a chart on a real Kubernetes cluster with an image
+built from this checkout and pushed to a private registry. The example uses the
+master chart; for the minion chart use `src/minion/kubernetes`,
+`helm/salt-minion` and the values shown in
+[`complete-system-test.md`](complete-system-test.md).
 
 ## Prerequisites
-- Access to the Kubernetes cluster (`kubectl` configured).
-- `helm` version 3 installed.
-- Docker (or an OCI builder) on the machine where the commands run.
-- Harbor registry reachable from the cluster (service name `harbor-core` on port `5000`).
-- The Helm chart you want to test (e.g., `salt-master-kubernetes`).
+
+- `kubectl` configured for the target cluster, Helm 3, and Docker.
+- A registry the cluster can pull from and you can push to.
+- Registry layout: `<registry>/<project>/<image>:<tag>`. Registries that use
+  projects (Harbor, for example) reject a push to `<registry>/<image>` with no
+  project, so create the project first and always include it.
+- If the registry uses a certificate from a private CA, that CA must be trusted
+  in two places:
+  - the container runtime on **every node** that will pull the image (for
+    containerd, a `certs.d/<registry>/` directory with the CA file or a
+    `hosts.toml`), and
+  - the Docker daemon you push from (`/etc/docker/certs.d/<registry>/ca.crt`, or
+    the equivalent in Docker Desktop and Rancher Desktop).
+  The master chart has no `imagePullSecrets` value (the minion chart has
+  `agent.image.imagePullSecrets`), so for the master use a project that nodes can
+  pull anonymously or configure registry credentials in the node's containerd.
 
 ## Steps
-1. **Build the Docker image**
+
+1. **Build the image**
    ```bash
-   docker build -t salt-master:ci-test docker/salt-master
+   docker build -t salt-master:ci-test src/master
    ```
-2. **Tag & push the image to Harbor**
+2. **Tag and push**
    ```bash
-   HARBOR=harbor-core:5000
+   REGISTRY=registry.example.com
+   PROJECT=salt
    IMAGE=salt-master
    TAG=ci-test
-   docker tag ${IMAGE}:${TAG} ${HARBOR}/${IMAGE}:${TAG}
-   docker push ${HARBOR}/${IMAGE}:${TAG}
+   docker login ${REGISTRY}
+   docker tag ${IMAGE}:${TAG} ${REGISTRY}/${PROJECT}/${IMAGE}:${TAG}
+   docker push ${REGISTRY}/${PROJECT}/${IMAGE}:${TAG}
    ```
-3. **Render the chart (optional sanity check)**
+3. **Fetch chart dependencies and render (sanity check)**
    ```bash
-   helm template test ./salt-master-kubernetes \
-     --set agent.image.repository=${HARBOR}/${IMAGE} \
+   helm dependency update helm/salt-master
+   helm template test helm/salt-master \
+     --namespace salt-master \
+     --set agent.image.repository=${REGISTRY}/${PROJECT}/${IMAGE} \
+     --set agent.image.tag=${TAG} \
+     --set agent.trustedMinions.enabled=false
+   ```
+4. **Install or upgrade**
+   ```bash
+   helm upgrade --install salt-master-test helm/salt-master \
+     --namespace salt-master --create-namespace \
+     --set agent.image.repository=${REGISTRY}/${PROJECT}/${IMAGE} \
      --set agent.image.tag=${TAG} \
      --set agent.trustedMinions.enabled=false \
-     --set service.gateway.enabled=false \
-     --set service.perOrdinal.gateway.enabled=false
-   ```
-4. **Install/upgrade the chart**
-   ```bash
-   helm upgrade --install salt-master-test ./salt-master-kubernetes \
-     --set agent.image.repository=${HARBOR}/${IMAGE} \
-     --set agent.image.tag=${TAG} \
-     --set agent.trustedMinions.enabled=false \
-     --set service.gateway.enabled=false \
-     --set service.perOrdinal.gateway.enabled=false \
      --wait --timeout 5m
    ```
-5. **Verify the deployment**
+   `agent.trustedMinions.enabled=false` skips the bundled `salt-key-operator`
+   subchart (whose image is pulled from GHCR by default) and keeps
+   `salt-key -a` working. Leave it out to test with the operator.
+5. **Verify**
    ```bash
-   kubectl get pods -l app=salt-master-kubernetes -o wide
+   kubectl -n salt-master get pods -l app=salt-master -o wide
+   kubectl -n salt-master exec salt-master-0 -c salt-master -- salt-key -L
    ```
-6. **Cleanup (optional)**
+   The pod is `salt-master-0`: the StatefulSet is named `salt-master`
+   regardless of the release name.
+6. **Clean up**
    ```bash
-   helm uninstall salt-master-test
+   helm uninstall salt-master-test -n salt-master
    ```
-
-You can invoke this workflow by asking the assistant to **execute the steps in `docs/helm-test.md`** on your target environment.
+   The master key Secret (`<release>-master-keys`) created by the keygen Job is
+   not owned by the release and remains; delete it before reinstalling under the
+   same release name if you want a new master identity. PVCs created from
+   `volumeClaimTemplates` also remain.

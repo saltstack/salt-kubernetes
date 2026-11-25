@@ -1,15 +1,17 @@
-# Salt extension packages installed into the Salt onedir Python environment.
-# Add/remove/pin any pip-installable Salt extension here - see
-# salt-minion-vcf/salt-extensions.txt for the sibling minion image's set.
+# Salt extension packages installed into the Salt onedir Python environment
+# when the image is built (src/minion/vcf/Dockerfile).
+# Add/remove/pin any pip-installable Salt extension here. Salt itself is
+# constrained to the installed onedir version during this step, so an extension's
+# "salt" requirement never replaces it. See ../kubernetes/salt-extensions.txt for the
+# Kubernetes image's set.
 
-# Kubernetes execution/state modules and cluster-API access, used by the
-# kube-bench compliance Jobs this chart drives.
+# Kubernetes execution/state modules and cluster-API access, used for
+# kube-bench based compliance assessments.
 # Source: https://github.com/salt-extensions/saltext-kubernetes
 saltext.kubernetes==2.1.0
 
 # Vault integration (ext_pillar, sdb driver, execution modules) - lets
-# kube-bench pillar values (or anything else) reference sdb://vault_sdb/...
-# instead of plaintext.
+# pillar values reference sdb://vault_sdb/... instead of plaintext.
 # Source: https://github.com/salt-extensions/saltext-vault
 saltext.vault==1.8.0
 

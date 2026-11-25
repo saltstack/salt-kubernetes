@@ -1,7 +1,8 @@
 image:
-  # Published to ghcr.io/saltstack/salt-kubernetes/salt-key-operator (see
-  # docs/releasing.md). Distroless static image - runs as the built-in
-  # "nonroot" user (uid/gid 65532), no numeric override needed here the way
+  # Build from src/salt-key-operator (docs/building.md). The release workflow
+  # pushes to ghcr.io/<owner>/salt-key-operator (docs/releasing.md); check
+  # the path you actually publish and override repository to match.
+  # Distroless static image - runs as the built-in "nonroot" user (uid/gid 65532), no numeric override needed here the way
   # this repo's other (apt/onedir-based) images require.
   repository: ghcr.io/saltstack/salt-kubernetes/salt-key-operator
   tag: "0.1.0"
@@ -15,10 +16,10 @@ replicas: 1
 
 # Restricts the operator's watches to a single namespace - and, as long as
 # this matches the namespace the operator itself is installed into (the
-# recommended setup - see README.md and salt-master-kubernetes's own
+# recommended setup - see README.md and salt-master's own
 # namespace default), also switches RBAC from a cluster-wide ClusterRole to
 # a namespaced Role, the smallest footprint this operator can run with.
-# Defaults to "salt-master" to match salt-master-kubernetes's own default
+# Defaults to "salt-master" to match salt-master's own default
 # namespace - install both charts into the same namespace and everything
 # lines up with no further configuration. Set to "" (cluster-wide) only for
 # a genuine multi-tenant cluster with SaltMinionKey objects and target

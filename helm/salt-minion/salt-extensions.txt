@@ -1,5 +1,9 @@
 # Salt extension packages installed into the Salt onedir Python environment.
 # Add/remove/pin any pip-installable Salt extension here.
+#
+# NOTE: this copy is not read by any image build. The images use
+# src/minion/kubernetes/salt-extensions.txt and src/minion/vcf/salt-extensions.txt;
+# edit those.
 
 # Kubernetes execution/state modules and cluster-API access
 # Source: https://github.com/salt-extensions/saltext-kubernetes

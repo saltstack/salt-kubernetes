@@ -1,95 +1,107 @@
 # Building From Source
 
-Most users don't need this — the published images and charts on GHCR (see
-the main [`README.md`](../README.md)) are the fastest path to a working
-deployment. Build from source instead when you need a patched/local image,
-a Salt version other than what's published, or an air-gapped build with no
-route to GHCR.
+Build from source when you need a patched or local image, a Salt version
+other than the pinned one, or a build with no route to GHCR. For published
+artifacts see [`releasing.md`](releasing.md).
 
 ## Prerequisites
 
-- Docker (or another OCI builder) for the images
-- Helm 3+ for the charts
+- Docker with BuildKit (the default in current Docker). The Dockerfiles use
+  `--mount=type=secret` and `TARGETARCH`, which need BuildKit.
+- Helm 3 for the charts.
 
 ## Docker images
 
-Each image is self-contained (pip-installed Salt extensions from PyPI rather
-than a checkout of the extension's own repo, where applicable), so all three
-build directly from this repo with that image's own directory as the build
-context:
+Each image builds with its own directory as the build context:
 
 ```bash
-docker build -t salt-master:3008.5 docker/salt-master
-docker build -t salt-minion-vcf:0.1.0 salt-minion-vcf
-docker build -t salt-minion-kubernetes:0.1.0 salt-minion-kubernetes
+docker build -t salt-master:3008.5 src/master
+docker build -t salt-minion:0.1.0 src/minion/kubernetes
+docker build -t salt-minion-vcf:0.1.0 src/minion/vcf
+docker build -t salt-key-operator:0.1.0 src/salt-key-operator
 ```
 
-See each image's own README for the full build-arg reference (Salt version,
-extension selection, internal PyPI/apt mirrors for air-gapped builds, etc.):
+Image names and tags are your choice. The chart defaults are
+`salt-master:3008.5` (master), `ghcr.io/saltstack/salt-kubernetes/salt-minion:0.1.0`
+(minion) and `ghcr.io/saltstack/salt-kubernetes/salt-key-operator:0.1.0` (operator), so
+override the image values when you use your own build (see below).
 
-- [`docker/salt-master/README.md`](../docker/salt-master/README.md)
-- [`salt-minion-vcf/README.md`](../salt-minion-vcf/README.md)
-- [`salt-minion-kubernetes/README.md`](../salt-minion-kubernetes/README.md)
+### Build arguments
 
-### Running a locally-built image
+| Argument | Images | Default | Purpose |
+| --- | --- | --- | --- |
+| `SALT_VERSION` | master, both minions | `3008.5` | Salt version. `latest` is also accepted. |
+| `SALT_UID`, `SALT_GID` | both minions | `10001` | Numeric user and group of the non-root `salt` user. (The master image uses a fixed `10001:10001`.) |
+| `INCLUDE_KUBECTL`, `KUBECTL_VERSION` | both minions | `true`, `v1.30.2` | Bundle `kubectl` (checksum verified). |
+| `EXTRA_SALT_EXTENSIONS` | both minions | empty | Extra pip requirements, space separated, installed after `salt-extensions.txt`. |
+| `PIP_INDEX_URL`, `PIP_TRUSTED_HOST`, `PIP_ONLY_BINARY` | both minions | empty | Install the Salt extensions through a PyPI mirror. |
+| `APT_MIRROR` | both minions | empty | Alternative Ubuntu apt mirror. |
+| `SALT_GPG_KEY_URL`, `SALT_APT_REPO_URL` | both minions | public Salt package repository | Override for restricted networks. |
 
-`salt-minion-vcf` also runs as a plain Docker container or via Docker
-Compose, without Kubernetes — see
-[`salt-minion-vcf/README.md`](../salt-minion-vcf/README.md) for the full
-guide, including the local Vault-backed testing workflow:
+Both minion Dockerfiles also have `SALT_HOME` and `SALT_SHELL`. Read the
+Dockerfiles for the authoritative list. The master Dockerfile only takes
+`SALT_VERSION`.
+
+Extensions installed by default are listed in
+`src/minion/kubernetes/salt-extensions.txt` (`saltext.kubernetes`,
+`saltext.vault`) and `src/minion/vcf/salt-extensions.txt` (the same plus
+`saltext.vcf` and `saltext.bmc`). The extension step constrains `salt` to the
+installed onedir version, so pip does not replace it.
+
+Examples:
 
 ```bash
-docker run -d \
-  --name salt-minion-vcf \
-  -e SALT_MASTER=salt-master.example.com \
-  -v salt-minion-vcf-pki:/etc/salt/pki/minion \
-  salt-minion-vcf:0.1.0
+# Different Salt version
+docker build --build-arg SALT_VERSION=3007.1 -t salt-master:3007.1 src/master
+
+# Extensions through an internal PyPI mirror
+docker build \
+  --build-arg PIP_INDEX_URL=<your-mirror-pypi-simple-url> \
+  --build-arg PIP_TRUSTED_HOST=<your-mirror-host> \
+  --build-arg PIP_ONLY_BINARY=:all: \
+  -t salt-minion:0.1.0 src/minion/kubernetes
+
+# Private CA needed while downloading build dependencies (BuildKit secret,
+# not kept in the final image)
+docker build --secret id=build_ca,src=/path/to/ca.crt -t salt-master:3008.5 src/master
 ```
 
-or with Docker Compose:
+See [`../src/master/README.md`](../src/master/README.md) and
+[`../src/minion/README.md`](../src/minion/README.md) for more.
 
-```bash
-cd salt-minion-vcf
-cp .env.example .env   # set SALT_MASTER, etc.
-docker compose up -d --build
-```
+### Getting a locally built image onto a cluster
 
-### Getting a locally-built image onto a cluster
-
-- **With a registry:** tag and push, then point the chart's
-  `agent.image.repository`/`image.repository` value at your registry path.
-- **Without a registry** (air-gapped/test clusters): `docker save` the image
-  and `ctr -n k8s.io images import` it directly into every node's containerd
-  store, then set `image.pullPolicy: Never` (or `agent.image.pullPolicy`) so
-  Kubernetes doesn't try to pull.
+- **With a registry:** tag and push, then set the chart's
+  `agent.image.repository` and `agent.image.tag`. A registry that organises
+  images in projects (such as Harbor) needs the project in the path:
+  `<registry>/<project>/<image>:<tag>`. See [`helm-test.md`](helm-test.md).
+- **Without a registry:** `docker save` the image and import it into every
+  node's containerd store (`ctr -n k8s.io images import`), then set
+  `agent.image.pullPolicy=Never`.
 
 ## Helm charts
 
-The charts themselves need no build step — install straight from a checkout
-of this repo:
+The charts need no build step. Install from a checkout. The master chart
+bundles the operator as a dependency, so fetch it first:
 
 ```bash
-helm install salt-master-kubernetes ./salt-master-kubernetes -f my-values.yaml
-helm install salt-minion-kubernetes ./salt-minion-kubernetes -f my-values.yaml
-helm install salt-minion-vcf ./salt-minion-vcf/helm/salt-minion-vcf \
-  --set salt.master=salt-master.example.com
+helm dependency update helm/salt-master
+helm install salt-master helm/salt-master --namespace salt-master --create-namespace \
+  --set agent.image.repository=<your-registry>/<project>/salt-master
+helm install salt-minion helm/salt-minion --namespace salt --create-namespace \
+  --set agent.saltMasterHost=salt-master.salt-master.svc.cluster.local \
+  --set agent.minion.allowSelfGeneratedKey=true \
+  --set agent.image.repository=<your-registry>/<project>/salt-minion
 ```
 
-Remember to also point each chart's image value at whatever you built above
-(the charts otherwise default to either the published GHCR image or an
-unqualified local tag — check `values.yaml`).
-
-To produce a distributable `.tgz` instead (e.g. for your own chart repo or
-registry):
+To produce distributable `.tgz` files (what CI runs as a packaging check):
 
 ```bash
-helm package salt-master-kubernetes
-helm package salt-minion-kubernetes
-helm package salt-minion-vcf/helm/salt-minion-vcf
+helm dependency update helm/salt-master
+helm package helm/salt-master helm/salt-minion helm/salt-key-operator
 ```
 
-## Cutting an actual release
+## Publishing
 
-Building locally doesn't publish anything. To push a build to
-`ghcr.io/saltstack/salt-kubernetes/...` under a real version tag, see
-[`docs/releasing.md`](releasing.md).
+Building locally publishes nothing. To push under a real version tag, see
+[`releasing.md`](releasing.md).

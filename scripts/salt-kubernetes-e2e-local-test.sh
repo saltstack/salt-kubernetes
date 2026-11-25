@@ -216,7 +216,7 @@ kubectl rollout status deployment/salt-key-operator \
   --namespace "${MASTER_NAMESPACE}" \
   --timeout=3m
 
-kubectl rollout status deployment/salt-master \
+kubectl rollout status statefulset/salt-master \
   --namespace "${MASTER_NAMESPACE}" \
   --timeout=3m
 
@@ -303,7 +303,7 @@ KEY_FOUND=false
 
 for attempt in $(seq 1 24); do
   ACTUAL_MINION_KEY_HASH="$(
-    kubectl exec deployment/salt-master \
+    kubectl exec statefulset/salt-master \
       --namespace "${MASTER_NAMESPACE}" \
       --container salt-master \
       -- sha256sum \
@@ -327,7 +327,7 @@ if [ "${KEY_FOUND}" != "true" ]; then
   exit 1
 fi
 
-kubectl exec deployment/salt-master \
+kubectl exec statefulset/salt-master \
   --namespace "${MASTER_NAMESPACE}" \
   --container salt-master \
   -- salt-key -L
@@ -380,7 +380,7 @@ helm upgrade --install "${MINION_RELEASE}" \
   --wait \
   --timeout 5m
 
-kubectl rollout status deployment/salt-minion \
+kubectl rollout status statefulset/salt-minion \
   --namespace "${MINION_NAMESPACE}" \
   --timeout=3m
 
@@ -394,7 +394,7 @@ kubectl get pods \
 kubectl get pods \
   --namespace "${MINION_NAMESPACE}"
 
-kubectl logs deployment/salt-minion \
+kubectl logs statefulset/salt-minion \
   --namespace "${MINION_NAMESPACE}" \
   --container salt-minion \
   --tail=40
@@ -404,7 +404,7 @@ echo "20. Run the real Master-to-Minion test"
 echo "===================================================="
 
 PING_OUTPUT="$(
-  kubectl exec deployment/salt-master \
+  kubectl exec statefulset/salt-master \
     --namespace "${MASTER_NAMESPACE}" \
     --container salt-master \
     -- salt \
@@ -422,15 +422,15 @@ echo "===================================================="
 echo "21. Restart the Minion and verify identity"
 echo "===================================================="
 
-kubectl rollout restart deployment/salt-minion \
+kubectl rollout restart statefulset/salt-minion \
   --namespace "${MINION_NAMESPACE}"
 
-kubectl rollout status deployment/salt-minion \
+kubectl rollout status statefulset/salt-minion \
   --namespace "${MINION_NAMESPACE}" \
   --timeout=3m
 
 RESTARTED_MINION_KEY_HASH="$(
-  kubectl exec deployment/salt-minion \
+  kubectl exec statefulset/salt-minion \
     --namespace "${MINION_NAMESPACE}" \
     --container salt-minion \
     -- sha256sum /etc/salt/pki/minion/minion.pub |
@@ -443,7 +443,7 @@ echo "Restarted key hash: ${RESTARTED_MINION_KEY_HASH}"
 test "${EXPECTED_MINION_KEY_HASH}" = "${RESTARTED_MINION_KEY_HASH}"
 echo "Minion identity after restart: PASS"
 
-kubectl exec deployment/salt-master \
+kubectl exec statefulset/salt-master \
   --namespace "${MASTER_NAMESPACE}" \
   --container salt-master \
   -- salt \

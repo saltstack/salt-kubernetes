@@ -1,49 +1,113 @@
 # salt-master
 
-Installs a Salt master as a Kubernetes `StatefulSet`, supporting Salt's
-native [multi-master mode](https://docs.saltproject.io/en/3006/topics/tutorials/multimaster.html)
-for active-active horizontal scaling: all replicas share one pre-seeded
-keypair, so any of them can be trusted equally by minions.
+Installs a Salt master as a Kubernetes `StatefulSet` (`salt-master`, pods
+`salt-master-0` .. `salt-master-N-1`). It runs in one of two modes:
 
-Deliberately minimal: unlike `salt-minion-kubernetes`, this chart creates no
-RBAC and the image installs no `saltext.kubernetes` — the master never calls
-the Kubernetes API itself, only minions do.
+- **Classic** (default, `agent.cluster.enabled=false`): one master, or Salt's
+  native [multi-master mode](https://docs.saltproject.io/en/3006/topics/tutorials/multimaster.html)
+  with several independent masters that share one pre-supplied keypair.
+- **Master cluster** (`agent.cluster.enabled=true`, opt-in): Salt's
+  [master cluster](https://docs.saltproject.io/en/latest/topics/tutorials/master-cluster.html),
+  where the masters present one identity to minions. **Read the known
+  limitation below before using it.**
+
+Deliberately minimal: unlike the salt-minion chart, this chart gives the master
+no Kubernetes API access (the pod's service-account token is not mounted) and
+the image installs no `saltext.kubernetes`. The master never calls the
+Kubernetes API itself, only minions do. The only RBAC created is a Role for the
+one-time master-key generation Job.
 
 ## Prerequisites
 
 - Kubernetes 1.24+
 - Helm 3+
-- The `salt-master` image (built from `docker/salt-master/` in
-  [saltext-kubernetes](https://github.com/saltstack/saltext-kubernetes))
-  available on your nodes/registry
+- The `salt-master` image (built from [`src/master`](../../src/master), or
+  pulled from the published image, see [`docs/releasing.md`](../../docs/releasing.md))
+  available on your nodes or registry. Set `agent.image.repository` and
+  `agent.image.tag` accordingly.
+- `agent.trustedMinions.enabled` defaults to `true`, which pulls the
+  `salt-key-operator` chart in as a dependency: run
+  `helm dependency update helm/salt-master` before installing from the
+  repository checkout, or set `agent.trustedMinions.enabled=false`.
+- Cluster mode only: a StorageClass that can provision a ReadWriteOnce PVC per
+  pod (isolated storage, the default) or an existing ReadWriteMany PVC (shared
+  storage).
+
+All objects are created in the namespace given by the `namespace` value
+(default `salt-master`), and use fixed names (`salt-master`,
+`salt-master-headless`, pods `salt-master-N`), so install one release per
+namespace. Create the namespace first (`kubectl create namespace salt-master`)
+if you create the key Secret before installing, as below.
 
 ## Installing the chart
 
-Single replica (dev/test - the master generates its own keypair on first
-start if `agent.masterKeySecretName` is left unset):
+Single master (dev/test). With `agent.masterKeySecretName` unset, a one-time Job
+generates a keypair into the Secret `<release>-master-keys`:
 
 ```bash
 helm install salt-master . -f my-values.yaml
 ```
 
-Active-active (3 replicas, one shared identity - see "Active-active" below):
+Classic multi-master (3 replicas, one shared keypair):
 
 ```bash
-kubectl create secret generic salt-master-keypair \
-  --from-literal=private-key-b64="$(base64 < master.pem)" \
-  --from-literal=public-key-b64="$(base64 < master.pub)" \
-  -n salt-master
+kubectl create secret generic salt-master-keypair -n salt-master \
+  --from-file=master.pem --from-file=master.pub
 
 helm install salt-master . \
   --set agent.replicas=3 \
   --set agent.masterKeySecretName=salt-master-keypair
 ```
 
+The Secret must contain the raw PEM files under the keys `master.pem` and
+`master.pub`. Create it from files named exactly that, or use
+`--from-file=master.pem=<path>`.
+
+Master cluster (3 replicas, isolated per-pod storage):
+
+```bash
+helm install salt-master . \
+  --set agent.cluster.enabled=true \
+  --set agent.replicas=3
+
+kubectl -n salt-master exec salt-master-0 -c salt-master -- salt-run cluster.members
+```
+
+## Upgrading from an earlier release
+
+Chart v1.0.0 and earlier ran the master as a `Deployment`. Since v1.1.0 it is a
+`StatefulSet`, and Kubernetes cannot convert one into the other in place:
+uninstall the old release and install again (`helm upgrade` fails or leaves an
+orphaned Deployment). Also note:
+
+- The standalone job-cache PVC of the old chart is no longer created; with
+  `agent.jobCache.persistence.enabled` the job cache now comes from a
+  `volumeClaimTemplate`, so the new volume starts empty.
+- The `agent.initContainers.fixCachePerms` value no longer exists. The init
+  containers now run non-root (see "Security").
+- The `service.perOrdinal.*` values are not part of this chart (see
+  "Accessing the masters").
+- Keep the master-key Secret (`<release>-master-keys` or your own
+  `agent.masterKeySecretName`) when reinstalling so minions keep trusting the
+  same master keypair. It stays behind after `helm uninstall` if it was
+  generated by the key Job.
+- Do not toggle `agent.cluster.enabled` on an existing release: the
+  StatefulSet's `volumeClaimTemplates` differ between the modes and are
+  immutable. Reinstall instead.
+
 ## Uninstalling the chart
 
 ```bash
 helm uninstall salt-master
 ```
+
+PVCs created from `volumeClaimTemplates` (the cluster `state` volume or the
+`job-cache` volume) are not deleted by Kubernetes when the StatefulSet goes
+away. Delete them yourself if you no longer need them. The generated
+`<release>-cluster-secret` is annotated `helm.sh/resource-policy: keep` and
+also stays behind, so delete it before reinstalling if you want a new cluster
+secret. The generated `<release>-master-keys` Secret was created by a Job, not
+by Helm, and also stays behind.
 
 ## Configuration
 
@@ -54,108 +118,248 @@ The following table lists the most commonly overridden values. See
 | --- | --- | --- |
 | `namespace` | Namespace for all chart resources. | `salt-master` |
 | `agent.image.repository` | Salt master image repository. | `salt-master` |
-| `agent.image.tag` | Salt master image tag. | `3008.5` |
-| `agent.replicas` | Number of master replicas (active-active - see below). | `1` |
-| `agent.cluster.enabled` | Salt master cluster mode (see "Master cluster" below). | `false` |
-| `agent.cluster.storageMode` | `isolated` (per-pod PVCs, Salt 3008+) or `shared` (one RWX claim). | `isolated` |
-| `agent.cluster.secretName` | Existing Secret with key `cluster-secret`. Empty = chart generates one. | `""` |
-| `agent.masterKeySecretName` | Existing Secret with the master's keypair (`private-key-b64`/`public-key-b64`). **Required** when `agent.replicas > 1`. | `""` |
+| `agent.image.tag` | Salt master image tag (the Salt version the image carries). | `3008.5` |
+| `agent.replicas` | Number of masters (StatefulSet replicas). `> 1` needs `agent.masterKeySecretName` (classic) or `agent.cluster.enabled` (cluster, which needs `>= 2`; use 3 or more). | `1` |
+| `agent.masterKeySecretName` | Classic mode. Existing Secret with the master keypair as raw files under keys `master.pem` and `master.pub`. **Required** when `agent.replicas > 1` and cluster mode is off. Empty uses `<release>-master-keys`, created by a one-time Job if missing. Ignored in cluster mode. | `""` |
 | `agent.autoAccept` | Auto-accept new minion keys instead of requiring `salt-key -a`/a `SaltMinionKey`. Leave `false` for a production master. | `false` |
-| `agent.masterId` | Sets `id:` on the master itself. Empty uses the pod hostname. Need not be unique across replicas. | `""` |
+| `agent.masterId` | Sets `id:` on the master itself. Empty lets Salt choose (classic) or uses the pod IP (cluster). Need not be unique across replicas in classic mode. | `""` |
 | `agent.presenceEvents` | Fires `salt/presence/present`/`change` events so `manage.present`/`manage.status` reflect which minions are actually connected right now. | `true` |
-| `agent.jobCache.persistence.enabled` | Per-replica PVC (via `volumeClaimTemplates`) for the master's job/event cache. Decoupled from identity - PKI is never persisted, only pre-seeded. | `true` |
-| `agent.trustedMinions.enabled` | Delegate minion acceptance to `salt-key-operator` (../salt-key-operator) instead of `salt-key -a`. See "Minion acceptance" below. | `false` |
+| `agent.jobCache.persistence.enabled` | Classic mode only. Per-replica PVC (via `volumeClaimTemplates`) mounted at `/var/cache/salt/master/jobs`. Ignored in cluster mode. | `false` |
+| `agent.jobCache.persistence.storageClassName` / `.accessMode` / `.size` | Settings for that PVC. | `""` / `ReadWriteOnce` / `1Gi` |
+| `agent.trustedMinions.enabled` | Delegate minion acceptance to `salt-key-operator` (../salt-key-operator) instead of `salt-key -a`. See "Minion acceptance" below. | `true` |
+| `agent.trustedMinions.createConfigMap` / `.configMapName` / `.syncIntervalSeconds` | Whether the chart creates the ConfigMap, its name, and how often the sidecar copies it into Salt's key directories. | `true` / `salt-master-trusted-minions` / `15` |
 | `agent.nodeSelector` | Pins every replica to a node. | `{}` |
-| `service.type` | `ClusterIP`, `NodePort`, or `LoadBalancer` for the flat (non-per-ordinal) Service. `ClusterIP` (in-cluster only) by default - see "External access" below to actually reach the master from outside the cluster. | `ClusterIP` |
-| `service.gateway.enabled` | Expose the flat Service via a Gateway API `TCPRoute` (e.g. Envoy Gateway) instead of/alongside NodePort. See "External access" below. | `false` |
-| `service.perOrdinal.enabled` | One Service per replica ordinal - needed for **external** minions to hold independent connections to every replica (see "Active-active" below). | `false` |
-| `service.perOrdinal.type` | `ClusterIP`, `NodePort`, or `LoadBalancer` for each per-ordinal Service. | `ClusterIP` |
+| `agent.podSecurityContext` / `agent.containerSecurityContext` | Non-root uid/gid `10001`, `fsGroup: 10001`, all capabilities dropped. Used by the master, the sidecar and the init containers. | see `values.yaml` |
+| `service.type` | `ClusterIP`, `NodePort`, or `LoadBalancer` for the flat `salt-master` Service. `ClusterIP` (in-cluster only) by default - see "External access". | `ClusterIP` |
+| `service.nodePorts.publish` / `.ret` | Node ports used when `service.type=NodePort`. | `30505` / `30506` |
+| `service.gateway.enabled` | Expose the flat Service via Gateway API `TCPRoute` objects (e.g. Envoy Gateway). See "External access". | `false` |
+| `service.gateway.gatewayName` / `.gatewayNamespace` / `.publishSectionName` / `.retSectionName` | The existing Gateway and its two TCP listeners to attach to. `gatewayName` is required when enabled; the namespace defaults to the release namespace. | `""` / `""` / `salt-publish` / `salt-ret` |
+| `agent.cluster.enabled` | Salt master cluster mode (see "Master cluster"). | `false` |
+| `agent.cluster.id` | `cluster_id`. Empty uses the release name. | `""` |
+| `agent.cluster.clusterDomain` | Cluster DNS suffix used to build peer names. | `cluster.local` |
+| `agent.cluster.poolPort` | `cluster_pool_port`: peer-to-peer RPC port (container port and headless Service port). | `4520` |
+| `agent.cluster.secretName` | Existing Secret with key `cluster-secret`. Empty = the chart generates `<release>-cluster-secret` once and keeps it across upgrades. | `""` |
+| `agent.cluster.storageMode` | `isolated` (per-pod PVCs, Salt 3008+) or `shared` (one existing RWX claim). | `isolated` |
+| `agent.cluster.persistence.storageClassName` / `.accessMode` / `.size` | Per-pod `state` PVC. Empty class = cluster default. | `""` / `ReadWriteOnce` / `5Gi` |
+| `agent.cluster.sharedStorage.existingClaim` | Existing ReadWriteMany PVC. **Required** when `storageMode=shared`. | `""` |
+| `agent.cluster.keysCacheDriver` | `keys.cache_driver`. Empty = Salt's default (`localfs_key`). | `""` |
+| `agent.cluster.autoReplaceVoters` | `cluster_auto_replace_voters`. Left off on purpose, see the limitation. | `false` |
+| `agent.cluster.minVoters` | `cluster_min_voters`. Empty = replicas - 1 (at least 1). Only matters with `autoReplaceVoters`. | `""` |
+| `serviceAccount.name` / `.annotations` | Service account of the pods and the key-generation Job. | `salt-master` / `{}` |
+| `rbac.create` | Create the Role and RoleBinding the master-key generation Job needs (create/get/list on Secrets). | `true` |
+
+## Classic or cluster mode
+
+| | Classic, 1 replica | Classic multi-master | Master cluster |
+| --- | --- | --- | --- |
+| Enabled by | default | `agent.replicas > 1` and `agent.masterKeySecretName` | `agent.cluster.enabled=true`, `agent.replicas >= 2` (use 3) |
+| Master keypair | from Secret | one keypair shared by all, from the Secret | each master generates its own, kept on its PVC |
+| What minions see | one master | independent masters, each is a separate connection | one cluster identity |
+| Minion `master:` | `salt-master` Service | every pod's headless DNS name, as a list | the flat `salt-master` Service |
+| Accepted keys | in the pod (lost on pod replacement) unless `trustedMinions` is on | per pod, so use `trustedMinions` | `cluster_pki_dir` (`/etc/salt/pki/cluster`), shared between masters |
+| Pod restarts | fine | fine | **not supported**, see below |
+
+Use classic mode unless you specifically need minions to see one identity with
+jobs routed between masters. Classic mode with one replica is the simplest
+setup, and classic multi-master is the more mature way to have more than one
+master.
 
 ## Master cluster
 
-With `agent.cluster.enabled=true` the masters form a
-[Salt master cluster](https://docs.saltproject.io/en/latest/topics/tutorials/master-cluster.html):
-minions see one cluster identity, so point them at the flat `salt-master` Service and
-any replica can serve any minion (unlike the classic multi-master mode above).
+With `agent.cluster.enabled=true` the masters form a Salt master cluster:
+minions see one cluster identity, so you point them at the flat `salt-master`
+Service and any master can serve any minion (unlike classic multi-master).
+
+Requirements and behaviour:
+
+- Salt 3007+ (the image carries 3008.5). The default `isolated` storage mode
+  uses `cluster_isolated_filesystem`, which needs Salt 3008+.
+- `agent.replicas` must be at least 2: Salt refuses to start a cluster member
+  with no peers, and the chart fails to render with fewer. Use **3 or more** so
+  the cluster can survive the loss of one member. A 2-replica cluster cannot
+  recover from any single failure.
+- Every master has its own keypair, stored on its own volume.
+  `agent.masterKeySecretName` and the key-generation Job are not used.
+- Each pod sets its `interface` and `id` to its pod IP (Salt uses `interface`
+  as the node identity in cluster consensus and matches it against
+  `cluster_peers`). The peers are the other pods' headless-Service DNS names;
+  the entrypoint waits for them to resolve (up to
+  `SALT_CLUSTER_PEER_WAIT_SECONDS`, 120 by default) and writes their IPs. The
+  pods start in parallel (`podManagementPolicy: Parallel`).
+- The cluster secret (`cluster_secret`, authenticates joining masters) is read
+  from `agent.cluster.secretName` (key `cluster-secret`) or generated once by
+  the chart as `<release>-cluster-secret`.
+- The peer RPC port (`agent.cluster.poolPort`, 4520) is added to the pods and
+  the headless Service. Do not expose it outside the cluster.
+- The accepted minion keys and the cluster key pair live in `cluster_pki_dir`
+  (`/etc/salt/pki/cluster`). `agent.trustedMinions` then writes into
+  `/etc/salt/pki/cluster/minions` and its siblings.
+- `agent.jobCache.persistence` is ignored.
+
+Storage modes (`agent.cluster.storageMode`):
+
+- `isolated` (default): every pod gets a PVC (`state`, from
+  `agent.cluster.persistence`) holding its own keypair, `cluster_pki_dir` and
+  `cachedir`; masters sync in-band. Changes to `file_roots`/`pillar_roots`
+  have to be propagated with `salt-run cluster.sync_roots`. No shared storage is
+  needed.
+- `shared`: set `agent.cluster.sharedStorage.existingClaim` to an existing
+  ReadWriteMany PVC. It is used with the subPaths `cluster-pki`, `cache`,
+  `file-roots` (mounted at `/srv/salt`) and `pillar-roots` (`/srv/pillar`); each
+  pod's own keypair still lives on its `state` PVC. The init container creates
+  those directories as uid/gid `10001`, so the claim must already be writable
+  by that user.
+
+The `keysCacheDriver` value is empty by default (Salt's `localfs_key`). Salt
+recommends `mmap_key` for isolated mode, but in testing it failed to read its
+own keys back on Longhorn volumes, so the chart does not set it.
+
+Verify the cluster (all masters should be listed):
 
 ```bash
-helm install salt-master . --set agent.cluster.enabled=true --set agent.replicas=3
 kubectl -n salt-master exec salt-master-0 -c salt-master -- salt-run cluster.members
 ```
 
-- `isolated` (default): each pod keeps `cluster_pki_dir` and `cachedir` on its own PVC
-  and peers sync in-band. `file_roots`/`pillar_roots` changes must be propagated with
-  `salt-run cluster.sync_roots`.
-- `shared`: set `agent.cluster.sharedStorage.existingClaim` to a ReadWriteMany PVC.
-- Each master has its own keypair; `agent.masterKeySecretName` is ignored. Do not expose
-  the `cluster-pool` port outside the cluster.
+### Known limitation: pod restarts
+
+A master's cluster identity is its `interface`, which here is the pod IP, and
+Salt 3008.5 has no setting that separates identity from bind address. A pod IP
+changes whenever the pod is restarted or rescheduled. What that means in
+practice:
+
+- A restarted or rescheduled master joins as a **new** learner and cannot
+  rejoin under its old identity, which stays behind as a dead voter.
+- Quorum is lost after the second restart. A cluster of 2 cannot recover from
+  any single failure.
+- Salt's own recovery option (`cluster_auto_replace_voters`, the chart's
+  `agent.cluster.autoReplaceVoters`) is off by default. It was seen to demote
+  a healthy voter instead of the dead one, so the chart leaves it off and you
+  should not rely on it.
+
+Until the identity can be made stable (for example `hostNetwork` pinned one pod
+per node, or fixed pod IPs), treat pod restarts, node drains and upgrades that
+roll the pods in cluster mode as unsupported, and use cluster mode only where
+you can accept rebuilding the cluster (reinstall and, if needed, delete the
+`state` PVCs) after a restart. Classic mode is not affected. Cluster mode is
+opt-in and is not the default.
+
+### What was tested
+
+Tested on a real cluster: cluster mode with 3 replicas and isolated storage
+(including the pod-restart behaviour described above). **Not tested:** shared storage mode, minions connecting through the cluster,
+and node failure.
+
+## Accessing the masters
+
+- **In-cluster, cluster mode or a single master:** minions use the flat
+  Service, `salt-master.<namespace>.svc.cluster.local` ports `4505`/`4506`
+  (the salt-minion chart's `agent.saltMasterHost`).
+- **In-cluster, classic multi-master:** list every pod individually in the
+  minion's `master:` setting (for the salt-minion chart, give
+  `agent.saltMasterHost` a list). The always-created headless Service gives each
+  pod a stable name:
+  `salt-master-<N>.salt-master-headless.<namespace>.svc.cluster.local` for `N`
+  in `0..agent.replicas-1`.
+- **External minions:** see "External access". This chart creates one flat
+  Service (and optional TCPRoutes for it) only. There is no per-replica
+  Service, so it does not provide external addresses for individual classic
+  replicas.
+
+Check where your minions point: a minion given only the flat Service in front
+of several classic masters is load-balanced per connection, so it sees only the
+one master it landed on.
 
 ## External access
 
 Everything defaults to `ClusterIP` - nothing is reachable from outside the
 cluster unless you explicitly opt into one of these (standard Kubernetes
 Ingress cannot do this at all: Ingress is HTTP(S)-only, and Salt's
-`4505`/`4506` carry raw ZeroMQ traffic, not HTTP):
+`4505`/`4506` carry raw ZeroMQ traffic, not HTTP). They all apply to the flat
+`salt-master` Service:
 
 - **`service.gateway.enabled=true`** (recommended if you have a Gateway
   API-compatible controller, e.g. Envoy Gateway): generates two `TCPRoute`
-  objects (`gateway.networking.k8s.io`) for raw TCP passthrough, attaching
-  to a `Gateway` your platform team manages separately. Requires
-  `service.gateway.gatewayName` and two pre-existing TCP listeners on that
-  Gateway (`service.gateway.publishSectionName`/`retSectionName`).
-- **`service.type=NodePort`**: exposes the port directly on every node's
-  own IP. Simple, no extra controller needed, but not standard practice
-  for a production cluster (opens a host-level port on every node
-  regardless of where the pod is actually scheduled) - prefer the Gateway
-  option above if available.
+  objects (`gateway.networking.k8s.io/v1alpha2`, one for `4505` and one for
+  `4506`) for raw TCP passthrough, attaching to a `Gateway` managed separately.
+  Requires `service.gateway.gatewayName` and two pre-existing TCP listeners on
+  that Gateway (`service.gateway.publishSectionName`/`retSectionName`).
+- **`service.type=NodePort`**: exposes the ports (`service.nodePorts`, default
+  `30505`/`30506`) on every node's own IP. Simple, no extra controller needed,
+  but not standard practice for a production cluster (opens a host-level port on
+  every node regardless of where the pod is scheduled) - prefer the Gateway
+  option if available.
 - **`service.type=LoadBalancer`**: standard cloud LB provisioning, if your
   cluster supports it.
 
-`service.perOrdinal.*` has the equivalent three options
-(`gateway.enabled`, `type=NodePort`, `type=LoadBalancer`) for active-active
-external access - see below.
+When minions reach the masters through one of these, set the minion's
+`master_port`/`publish_port` to the exposed ports if they differ from
+`4506`/`4505` (see the salt-minion chart's `agent.saltMasterPort` and
+`agent.saltPublishPort`).
 
-## Active-active (multiple replicas)
+## Classic multi-master (more than one replica)
 
-Every master replica is an independent Salt process - Salt's PUB (`4505`)
-and REQ/REP (`4506`) channels are per-process, never shared between
-replicas. A minion connected to only one replica only ever sees jobs
-dispatched via *that* replica. For genuine fan-out (any replica can reach
-any minion), point each minion's `master:` config at a **list** of every
-replica's address, not a single Service:
+Every classic master is an independent Salt process - Salt's PUB (`4505`) and
+REQ/REP (`4506`) channels are per-process, never shared between replicas. A
+minion connected to only one replica only ever sees jobs dispatched via *that*
+replica. For genuine fan-out (any replica can reach any minion), point each
+minion's `master:` at a **list** of every replica's address, not a single
+Service (see "Accessing the masters").
 
-- **In-cluster minions**: `salt-master-<N>.salt-master-headless.<namespace>.svc.cluster.local`
-  for `N` in `0..agent.replicas-1` (the headless Service is always created).
-- **External minions**: set `service.perOrdinal.enabled=true` for one
-  Service per replica (see "External access" above for `type`/`gateway`
-  choices), then use either that replica's NodePort/LoadBalancer address
-  or its Gateway TCPRoute address.
-
-All replicas must share the identical keypair (`agent.masterKeySecretName`)
-- the chart fails to render otherwise. There is no cross-replica job/event
-cache by design (matching Salt's own multi-master docs: "the masters do not
-share any information") - `agent.jobCache.persistence` is per-replica.
+All replicas must share the identical keypair (`agent.masterKeySecretName`) -
+the chart fails to render otherwise. Each pod's init container
+(`prepare-master-keys`) copies the keys into a writable `emptyDir`; nothing in
+`/etc/salt/pki` is persisted. There is no cross-replica job/event cache by
+design (matching Salt's own multi-master docs: "the masters do not share any
+information"); `agent.jobCache.persistence` is per-replica.
 
 ## Minion acceptance
 
 Two ways to accept a minion's key, mutually exclusive per release:
 
-- **Traditional** (`agent.trustedMinions.enabled: false`, the default):
-  `salt-key -a` against a specific pod. With more than one replica this
-  only affects that one pod - repeat against every replica, or accept the
-  inconsistency isn't safe for production active-active use.
+- **`salt-key-operator`** (`agent.trustedMinions.enabled: true`, the
+  default): the `salt-key-operator` chart is installed as a dependency of this
+  chart (`helm dependency update` first). Apply a `SaltMinionKey` custom
+  resource per minion - it keeps every replica consistent automatically. See
+  [`salt-key-operator`](../../src/salt-key-operator) and its chart for the full
+  flow. A `trusted-minions-sync` sidecar in each master pod continuously copies
+  the operator's ConfigMap into the directories Salt reads, and also removes
+  any key that is not in the ConfigMap. `salt-key -a` therefore does not stick:
+  a key accepted that way is removed again within
+  `agent.trustedMinions.syncIntervalSeconds`. (It is not a direct ConfigMap
+  volume mount: Kubernetes always mounts ConfigMaps as symlinks, and Salt 3008
+  explicitly rejects symlinks in its key store - confirmed by live testing, see
+  [`CHANGELOG.md`](CHANGELOG.md).) This is intentional, not a bug. Allow about
+  a minute for kubelet's ConfigMap propagation plus the sync interval.
+- **Traditional** (`agent.trustedMinions.enabled: false`): `salt-key -a`
+  against a pod.
   ```bash
-  kubectl -n salt-master exec -it salt-master-0 -- salt-key -L
-  kubectl -n salt-master exec -it salt-master-0 -- salt-key -a '<minion-id>'
+  kubectl -n salt-master exec -it salt-master-0 -c salt-master -- salt-key -L
+  kubectl -n salt-master exec -it salt-master-0 -c salt-master -- salt-key -a '<minion-id>'
   ```
-- **`salt-key-operator`** (`agent.trustedMinions.enabled: true`): install
-  the separate [`salt-key-operator`](../salt-key-operator) chart, then
-  apply a `SaltMinionKey` custom resource instead - it keeps every replica
-  consistent automatically. See that component's own README for the full
-  flow. Once enabled, `salt-key -a` no longer works against this master at
-  all - a `trusted-minions-sync` sidecar continuously copies the
-  operator's ConfigMap into the directory Salt reads, and that's the only
-  path in. (Not a direct ConfigMap volume mount: Kubernetes always mounts
-  ConfigMaps as symlinks, and Salt 3008 explicitly rejects symlinks in its
-  key store - confirmed by live testing, see the chart's own
-  `CHANGELOG.md`.) This is intentional, not a bug.
+  In classic multi-master each master keeps its own accepted keys, so repeat
+  the command against every pod, or use the operator. In classic mode the
+  accepted keys sit in an `emptyDir` and are lost when the pod is replaced; in
+  cluster mode they are in `cluster_pki_dir` on the pod's volume and shared
+  between the masters.
+
+## Security
+
+- No root and no added capabilities anywhere, including the init containers.
+  Every container uses `agent.containerSecurityContext` (`runAsNonRoot`,
+  `allowPrivilegeEscalation: false`, all capabilities dropped) and the pod runs
+  as uid/gid `10001` with `fsGroup: 10001`.
+- The init containers (`prepare-master-keys` in classic mode,
+  `prepare-cluster-dirs` in cluster mode) run as that same non-root user and
+  create the directories they need themselves; the master then mounts the
+  existing subdirectories. This works because `fsGroup` makes each volume's
+  root group-writable for gid `10001`. The same pattern is used by the
+  salt-minion chart.
+- **Consequence:** any volume you supply yourself (for example
+  `agent.cluster.sharedStorage.existingClaim`) must already be writable by
+  uid/gid `10001`; the chart cannot fix ownership without root.
+- The master-key Secret is mounted read-only with mode `0440`, copied by the
+  init container into a writable `emptyDir` (private key `0400`).
+- The master's service-account token is not mounted. Only the master-key
+  generation Job mounts one, to create the Secret.
+- The pods have no liveness or readiness probe. The image's Docker
+  `HEALTHCHECK` is not used by Kubernetes.

@@ -1,21 +1,23 @@
-# Namespace where all salt-minion objects are deployed.
-# Must match the namespace used in kube-bench-job.
+# Namespace where all salt-minion objects are deployed. Every namespaced object
+# uses this value, not the namespace given to `helm --namespace`, so keep the two
+# the same. Must also match the namespace used in kube-bench-job.
 namespace: salt
 
 agent:
   # Deployment mode:
-  #   in_cluster — deploy the Salt minion as a Kubernetes Deployment (default)
+  #   in_cluster — deploy the Salt minion as a Kubernetes StatefulSet (default)
   #   external   — create RBAC only; the minion runs outside the cluster
   authMode: in_cluster
 
-  # The image supplies the numeric user and group for the containers.
-  # fsGroup provides access to the key Secret and the writable PKI volume.
+  # The image supplies the numeric user and group (10001) for the containers.
+  # fsGroup lets the non-root containers read the key Secret (mounted 0440) and
+  # write the emptyDir PKI volume.
   podSecurityContext:
     fsGroup: 10001
     runAsNonRoot: true
 
-  # No added capabilities. The minion and key preparation init container
-  # use this context and run without privilege escalation.
+  # No added capabilities. The minion and the prepare-minion-keys init
+  # container both use this context: non-root, no privilege escalation.
   containerSecurityContext:
     allowPrivilegeEscalation: false
     runAsNonRoot: true
@@ -26,30 +28,37 @@ agent:
   # ── in_cluster mode settings ──────────────────────────────────────────────
   image:
     imagePullSecrets: []
-    # Published by this repo (see ../docs/releasing.md and CHANGELOG.md for
+    # Published by this repo (see ../../docs/releasing.md and CHANGELOG.md for
     # exactly which Salt/extension versions this tag carries) - preloaded
-    # with saltext.vault and saltext.kubernetes on top of core Salt. Point
-    # this at a plain saltstack/salt image instead if you don't need either
-    # extension.
+    # with saltext.vault and saltext.kubernetes on top of core Salt. The tag
+    # is an image release number, not a Salt version. A different image has
+    # to provide the same entrypoint contract (see ../../src/minion/README.md),
+    # including the POD_NAME fallback for the minion ID.
     repository: ghcr.io/saltstack/salt-kubernetes/salt-minion
-    # To use VCF extensions, set repository to the VCF image (e.g., salt-minion-vcf) and appropriate tag
+    # To use the VCF extensions, set repository to the VCF image (e.g., salt-minion-vcf) and an appropriate tag
     # repository: ghcr.io/saltstack/salt-kubernetes/salt-minion-vcf
     tag: "0.1.0"
     pullPolicy: IfNotPresent
 
   # Sets SALT_LOG_LEVEL / `log_level:` on the minion.
   logLevel: info
+  # Number of minion pods. Every replica is a separate minion with its own ID
+  # (<idPrefix>-<ordinal>) and its own keypair - this is not plain scaling of
+  # one identity. With more than one replica see minion.keySecretName below.
   replicas: 1
   # Salt master address. Required when authMode=in_cluster. Also accepts a
   # list, for Salt's native multi-master mode
   # (https://docs.saltproject.io/en/3006/topics/tutorials/multimaster.html) -
-  # one independent, simultaneous connection per address, not failover.
-  # Point this at every replica address of an active-active
-  # salt-master-kubernetes release instead of a single master, e.g.:
+  # one independent, simultaneous connection per address, not failover, and
+  # every listed master has to accept every minion key. Use it for independent
+  # masters, e.g. the classic multi-master mode of the salt-master chart
+  # (agent.cluster.enabled=false, replicas > 1), where each replica has its own
+  # name through the headless Service:
   #   saltMasterHost:
-  #     - salt-master-kubernetes-0.salt-master-kubernetes-headless.salt-master.svc.cluster.local
-  #     - salt-master-kubernetes-1.salt-master-kubernetes-headless.salt-master.svc.cluster.local
-  #     - salt-master-kubernetes-2.salt-master-kubernetes-headless.salt-master.svc.cluster.local
+  #     - salt-master-0.salt-master-headless.salt-master.svc.cluster.local
+  #     - salt-master-1.salt-master-headless.salt-master.svc.cluster.local
+  # For a Salt master CLUSTER (agent.cluster.enabled=true) use a single
+  # address: the one salt-master Service.
   saltMasterHost: ""
   # "ret" channel (master_port). Override alongside saltPublishPort whenever
   # the master isn't reachable on its default ports as-is -- e.g. behind a
@@ -80,25 +89,34 @@ agent:
   reconRandomize: true
 
   minion:
-    # Salt minion ID. Leave empty to use the pod hostname. Only valid with
-    # agent.replicas: 1 - with more replicas every pod would register as the
-    # same minion, so the chart refuses; use idPrefix instead.
+    # Explicit minion ID. Leave empty to use the pod name (default
+    # "salt-minion-0"). Only valid with agent.replicas: 1 - with more replicas
+    # every pod would register as the same minion, so the chart refuses; use
+    # idPrefix instead.
     id: ""
     # Names the StatefulSet (default "salt-minion"). Pods are then named
     # <idPrefix>-0, <idPrefix>-1, ... and each pod's minion ID is its pod
     # name, e.g. idPrefix: external-minion -> external-minion-0, -1, ...
     idPrefix: ""
+    # masterId and grains are currently only written to the
+    # <release>-minion-config ConfigMap, which no pod mounts, so they do not
+    # affect the minion.
     masterId: ""
+    # Base64-encoded master public key; passed as SALT_MASTER_PUBKEY_B64 so the
+    # minion trusts the master directly on first connect.
     masterPubKeyB64: ""
-    # Additional grains injected via the minion config ConfigMap.
     grains: {}
+    # Inline keypair (base64-encoded PEM), set together. One replica only: the
+    # chart creates a Secret from them (named keySecretName, or <release>-keys).
+    # The chart rejects them with replicas > 1.
     privateKeyB64: ""
     publicKeyB64: ""
 
     # Name of an EXISTING Kubernetes Secret (created out-of-band, never via
     # Helm values) with raw 'minion.pem' and 'minion.pub' entries. When
-    # empty, the chart creates a Secret from privateKeyB64 and publicKeyB64
-    # or, when explicitly enabled below, a keygen Job.
+    # empty, the Secret is called <release>-keys; the chart creates it from
+    # privateKeyB64 and publicKeyB64 or, when explicitly enabled below, a
+    # keygen Job fills it. Setting this disables the keygen Job.
     # For pre-registered trust, the minion's public key must already be
     # trusted (e.g. via salt-key-operator's SaltMinionKey - see
     # ../../salt-key-operator) *before* the minion starts, so it must be
@@ -109,13 +127,16 @@ agent:
     # holds one pair per pod, as '<pod-name>.pem' and '<pod-name>.pub' (e.g.
     # external-minion-0.pem), and each pod mounts only its own pair. The
     # keygen Job creates this layout (and adds missing pairs when you scale
-    # up); privateKeyB64/publicKeyB64 hold one pair and are rejected.
+    # up). With your own Secret it must hold a pair for EVERY pod before the
+    # pods can start; privateKeyB64/publicKeyB64 hold one pair and are rejected.
     keySecretName: ""
 
     # Explicit opt-out of the keySecretName requirement above when
     # privateKeyB64 and publicKeyB64 are not supplied - allows the keygen
-    # Job to create a keypair.
-    # The generated public key must be accepted by the Salt master.
+    # Job to create the keys in Secret <release>-keys (one pair per pod when
+    # replicas > 1; existing pairs are never regenerated). The Job only runs
+    # while keySecretName is empty.
+    # The generated public keys must be accepted by the Salt master.
     # Named explicitly rather than just leaving keySecretName empty, so
     # choosing this behavior is a deliberate, visible decision in your
     # values file.
@@ -123,9 +144,11 @@ agent:
 
   # Optional Vault integration (saltext.vault, baked into this chart's
   # default image) - lets pillar values reference sdb://vault_sdb/<path>:<key>
-  # instead of plaintext. All optional; disabled unless addr is set. Prefer
-  # secretIdFile/tokenFile (a mounted Secret) over secretId/token (plain
-  # values, visible in `kubectl get pod -o yaml`).
+  # instead of plaintext. All optional; disabled unless addr is set.
+  # secretId/token are plain pod environment variables, visible in
+  # `kubectl get pod -o yaml`. secretIdFile/tokenFile are paths read inside the
+  # container; the chart does not mount anything there, so the file has to
+  # exist in the image or come from your own customization.
   vault:
     addr: ""
     authMethod: approle
@@ -136,9 +159,10 @@ agent:
     tokenFile: ""
     sdbProfile: vault_sdb
 
-  # Select the nodes on which the minion Pod can run.
+  # Select the nodes on which the minion pods can run.
   nodeSelector: {}
 
+# Image for the key generation Job (needs kubectl and openssl).
 keygen:
   image:
     imagePullSecrets: []
