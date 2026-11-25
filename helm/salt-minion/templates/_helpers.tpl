@@ -33,15 +33,7 @@
 {{- include "salt-minion.image" .Values.keygen.image -}}
 {{- end -}}
 
-{{- define "salt-minion.masterHost" -}}
-{{- if kindIs "slice" .Values.agent.saltMasterHost -}}
-{{- join "," .Values.agent.saltMasterHost -}}
-{{- else -}}
-{{- .Values.agent.saltMasterHost -}}
-{{- end -}}
-{{- end -}}
-
-{{/* Flags */}}
+{{/* Enabled decisions */}}
 {{- define "salt-minion.keySecretEnabled" -}}
 {{- if .Values.agent.minion.privateKeyB64 -}}
 true
@@ -66,12 +58,6 @@ true
 
 {{- define "salt-minion.keygenRbacEnabled" -}}
 {{- if and .Values.rbac.create (include "salt-minion.keygenEnabled" .) -}}
-true
-{{- end -}}
-{{- end -}}
-
-{{- define "salt-minion.deploymentEnabled" -}}
-{{- if eq .Values.agent.authMode "in_cluster" -}}
 true
 {{- end -}}
 {{- end -}}
