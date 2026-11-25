@@ -78,3 +78,15 @@ tests:
       - equal:
           path: metadata.name
           value: custom-release-keygen
+
+  - it: checks existing keys against the whole key map, not a per-key jsonpath
+    set:
+      agent.replicas: 2
+      agent.minion.allowSelfGeneratedKey: true
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "jsonpath=\\{\\.data\\}"
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "\\.data\\['"

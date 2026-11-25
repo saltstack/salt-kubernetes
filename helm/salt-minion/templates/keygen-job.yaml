@@ -36,8 +36,15 @@ spec:
               trap 'rm -rf "$temporary_directory"' EXIT
 
               exists=false
+              existing_keys=""
               if kubectl get secret "$secret" -n "$namespace" >/dev/null 2>&1; then
                 exists=true
+                # The whole key map as JSON ({"<pod>.pem":"...",...}). Looking a
+                # key up with jsonpath does not work: kubectl needs the dots in
+                # the key escaped, an unescaped lookup silently returns nothing,
+                # and every pair would then look missing and be regenerated.
+                existing_keys="$(kubectl get secret "$secret" -n "$namespace" \
+                  -o 'jsonpath={.data}')"
               fi
 
               # One keypair per pod, stored as <pod>.pem / <pod>.pub. Existing
@@ -45,8 +52,7 @@ spec:
               new=""
               for pod in $pods; do
                 if [ "$exists" = true ] && \
-                   [ -n "$(kubectl get secret "$secret" -n "$namespace" \
-                     -o "jsonpath={.data['$pod.pem']}")" ]; then
+                   printf '%s' "$existing_keys" | grep -Fq "\"$pod.pem\":"; then
                   echo "Keys for $pod already exist; skipping"
                   continue
                 fi
