@@ -192,9 +192,10 @@ See [values.yaml](values.yaml) for the complete list of configuration options.
 | `agent.saltMasterHost` | Salt master hostname or comma-separated list (REQUIRED) | `""` |
 | `agent.saltMasterPort` | Master request/return port | `4506` |
 | `agent.saltPublishPort` | Master publish port | `4505` |
-| `agent.replicas` | Number of minion pod replicas | `1` |
+| `agent.replicas` | Number of minion pods. Each pod is a separate minion with its own ID and keypair (see "Multiple replicas") | `1` |
 | `agent.logLevel` | Minion log level | `info` |
-| `agent.minion.id` | Minion ID (uses pod hostname if empty) | `""` |
+| `agent.minion.id` | Minion ID (uses pod hostname if empty). Only with `agent.replicas: 1` | `""` |
+| `agent.minion.idPrefix` | Names the StatefulSet; pod `N` becomes minion `<idPrefix>-N`. Default StatefulSet name `salt-minion` | `""` |
 | `agent.vault.addr` | Vault server address (enables saltext.vault) | `""` |
 | `rbac.create` | Create RBAC resources | `true` |
 | `rbac.fullAccess` | Grant full cluster admin rights | `true` |
@@ -255,6 +256,38 @@ The chart's pre-install Job automatically generates keys:
 helm install salt-minion ./helm/salt-minion \
   --set agent.minion.allowSelfGeneratedKey=true
 ```
+
+### Multiple replicas
+
+The minion runs as a StatefulSet, and every replica is a **separate minion** with
+its own ID (the pod name) and its own keypair. Set `agent.minion.idPrefix` to choose
+the names:
+
+```bash
+helm install salt-minion ./helm/salt-minion \
+  --set agent.saltMasterHost=salt-master.example.com \
+  --set agent.replicas=3 \
+  --set agent.minion.idPrefix=external-minion \
+  --set agent.minion.allowSelfGeneratedKey=true   # minions: external-minion-0, -1, -2
+```
+
+- `agent.minion.id` and `agent.minion.privateKeyB64`/`publicKeyB64` describe a single
+  identity, so the chart refuses them when `agent.replicas > 1`.
+- With `allowSelfGeneratedKey`, the keygen Job creates one Secret holding a pair per pod
+  (`<pod>.pem` / `<pod>.pub`). Scaling up only adds the missing pairs; existing keys are
+  never regenerated. Each pod mounts only its own pair.
+- With your own keys, create that Secret yourself (same key names) and set
+  `agent.minion.keySecretName`:
+
+  ```bash
+  kubectl create secret generic my-minion-keys -n salt \
+    --from-file=external-minion-0.pem=./0.pem --from-file=external-minion-0.pub=./0.pub \
+    --from-file=external-minion-1.pem=./1.pem --from-file=external-minion-1.pub=./1.pub
+  ```
+- Every pod's public key must be accepted by the master, for example one `SaltMinionKey`
+  per pod.
+- Scaling down leaves the extra pairs in the Secret. Remove them, and the minion keys on
+  the master, if you don't want them.
 
 ### Health Checks
 

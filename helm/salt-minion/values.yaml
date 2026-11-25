@@ -80,8 +80,14 @@ agent:
   reconRandomize: true
 
   minion:
-    # Salt minion ID. Leave empty to use the pod hostname.
+    # Salt minion ID. Leave empty to use the pod hostname. Only valid with
+    # agent.replicas: 1 - with more replicas every pod would register as the
+    # same minion, so the chart refuses; use idPrefix instead.
     id: ""
+    # Names the StatefulSet (default "salt-minion"). Pods are then named
+    # <idPrefix>-0, <idPrefix>-1, ... and each pod's minion ID is its pod
+    # name, e.g. idPrefix: external-minion -> external-minion-0, -1, ...
+    idPrefix: ""
     masterId: ""
     masterPubKeyB64: ""
     # Additional grains injected via the minion config ConfigMap.
@@ -98,6 +104,12 @@ agent:
     # ../../salt-key-operator) *before* the minion starts, so it must be
     # handed that exact keypair rather than generating its own, which the
     # trust store would never have been told about.
+    #
+    # With agent.replicas > 1 every pod needs its OWN keypair. The Secret then
+    # holds one pair per pod, as '<pod-name>.pem' and '<pod-name>.pub' (e.g.
+    # external-minion-0.pem), and each pod mounts only its own pair. The
+    # keygen Job creates this layout (and adds missing pairs when you scale
+    # up); privateKeyB64/publicKeyB64 hold one pair and are rejected.
     keySecretName: ""
 
     # Explicit opt-out of the keySecretName requirement above when

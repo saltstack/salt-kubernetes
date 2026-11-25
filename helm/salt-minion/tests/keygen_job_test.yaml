@@ -57,3 +57,24 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: names the Job after the replica count and lists every pod when replicas > 1
+    set:
+      agent.replicas: 3
+      agent.minion.idPrefix: ext
+      agent.minion.allowSelfGeneratedKey: true
+    asserts:
+      - equal:
+          path: metadata.name
+          value: custom-release-keygen-3
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'pods="ext-0 ext-1 ext-2"'
+
+  - it: keeps the single-keypair Job name with one replica
+    set:
+      agent.minion.allowSelfGeneratedKey: true
+    asserts:
+      - equal:
+          path: metadata.name
+          value: custom-release-keygen

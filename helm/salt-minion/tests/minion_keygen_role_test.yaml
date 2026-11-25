@@ -27,7 +27,7 @@ tests:
           value:
             - apiGroups: [""]
               resources: [secrets]
-              verbs: [create, get, list]
+              verbs: [create, get, list, patch]
 
   - it: does not create the Role when a Secret name is supplied
     set:
@@ -68,3 +68,12 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: lets the Role patch the Secret to add keys when scaling up
+    set:
+      agent.replicas: 2
+      agent.minion.allowSelfGeneratedKey: true
+    asserts:
+      - contains:
+          path: rules[0].verbs
+          content: patch

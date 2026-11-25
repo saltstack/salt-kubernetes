@@ -26,6 +26,21 @@ versions it carries — check here.
 
 ## Chart releases (`salt-minion-chart/vX.Y.Z`)
 
+### Unreleased
+- `Deployment` -> `StatefulSet` (`templates/deployment.yaml` is now `templates/statefulset.yaml`),
+  so every replica gets a stable, unique identity. Reinstall rather than `helm upgrade`: a
+  Deployment cannot be converted in place.
+- Previously `agent.replicas > 1` made every pod register as one and the same minion, all
+  sharing one keypair. Now each pod is its own minion (`<pod name>` as ID) with its own
+  keypair. New `agent.minion.idPrefix` names the StatefulSet and the pods.
+- With `agent.replicas > 1` the chart rejects `agent.minion.id` and
+  `agent.minion.privateKeyB64`/`publicKeyB64` (single-identity settings). `keySecretName`
+  then points at a Secret holding `<pod>.pem`/`<pod>.pub` pairs; each pod mounts only its own.
+- The keygen Job generates one keypair per replica, only adds missing pairs when scaling up,
+  and is named `<release>-keygen-<replicas>` when `replicas > 1`. Its Role gains `patch`.
+- With `agent.replicas: 1` the Secret layout (`minion.pem`/`minion.pub`) and `agent.minion.id`
+  behave as before.
+
 ### salt-minion-chart/v1.0.0
 **Breaking - defaults change on `helm upgrade` from any prior release:**
 - `agent.minion.keySecretName` is now **required** - the chart fails fast

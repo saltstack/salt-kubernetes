@@ -1,17 +1,17 @@
 suite: workload images
 templates:
-  - templates/deployment.yaml
+  - templates/statefulset.yaml
   - templates/keygen-job.yaml
 set:
   agent.minion.allowSelfGeneratedKey: true
 tests:
   - it: renders the default images
     asserts:
-      - template: templates/deployment.yaml
+      - template: templates/statefulset.yaml
         equal:
           path: spec.template.spec.containers[?(@.name == "salt-minion")].image
           value: ghcr.io/saltstack/salt-kubernetes/salt-minion:0.1.0
-      - template: templates/deployment.yaml
+      - template: templates/statefulset.yaml
         equal:
           path: spec.template.spec.initContainers[?(@.name == "prepare-minion-keys")].image
           value: ghcr.io/saltstack/salt-kubernetes/salt-minion:0.1.0
@@ -25,7 +25,7 @@ tests:
       agent.image.tag: '1.10'
       keygen.image.tag: '1.10'
     asserts:
-      - template: templates/deployment.yaml
+      - template: templates/statefulset.yaml
         equal:
           path: spec.template.spec.containers[?(@.name == "salt-minion")].image
           value: ghcr.io/saltstack/salt-kubernetes/salt-minion:1.10
@@ -39,7 +39,7 @@ tests:
       agent.image.tag: 123
       keygen.image.tag: 123
     asserts:
-      - template: templates/deployment.yaml
+      - template: templates/statefulset.yaml
         equal:
           path: spec.template.spec.containers[?(@.name == "salt-minion")].image
           value: ghcr.io/saltstack/salt-kubernetes/salt-minion:123
@@ -53,11 +53,11 @@ tests:
       agent.image.repository: mirror.example:5000/team/minion
       keygen.image.repository: other.example/team/kubectl
     asserts:
-      - template: templates/deployment.yaml
+      - template: templates/statefulset.yaml
         equal:
           path: spec.template.spec.containers[?(@.name == "salt-minion")].image
           value: mirror.example:5000/team/minion:0.1.0
-      - template: templates/deployment.yaml
+      - template: templates/statefulset.yaml
         equal:
           path: spec.template.spec.initContainers[?(@.name == "prepare-minion-keys")].image
           value: mirror.example:5000/team/minion:0.1.0
@@ -73,7 +73,7 @@ tests:
       keygen.image.imagePullSecrets:
         - name: keygen-secret
     asserts:
-      - template: templates/deployment.yaml
+      - template: templates/statefulset.yaml
         equal:
           path: spec.template.spec.imagePullSecrets
           value:
@@ -98,6 +98,6 @@ tests:
       keygen.image.imagePullSecrets:
         - name: keygen-secret
     asserts:
-      - template: templates/deployment.yaml
+      - template: templates/statefulset.yaml
         notExists:
           path: spec.template.spec.imagePullSecrets

@@ -49,9 +49,13 @@ true
 
 {{- define "salt-minion.keygenJobEnabled" -}}
 {{- if include "salt-minion.keygenEnabled" . -}}
+{{- if include "salt-minion.perPodKeys" . -}}
+true
+{{- else -}}
 {{- $secretName := include "salt-minion.keySecretName" . -}}
 {{- if not (lookup "v1" "Secret" .Values.namespace $secretName) -}}
 true
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -59,5 +63,43 @@ true
 {{- define "salt-minion.keygenRbacEnabled" -}}
 {{- if and .Values.rbac.create (include "salt-minion.keygenEnabled" .) -}}
 true
+{{- end -}}
+{{- end -}}
+
+{{/*
+StatefulSet name. Pods are named <name>-<ordinal> and the entrypoint falls
+back to the pod hostname for the minion ID, so this doubles as the ID prefix.
+*/}}
+{{- define "salt-minion.workloadName" -}}
+{{- .Values.agent.minion.idPrefix | default "salt-minion" -}}
+{{- end -}}
+
+{{/* Space-separated pod names (== minion IDs) of every replica. */}}
+{{- define "salt-minion.podNames" -}}
+{{- $name := include "salt-minion.workloadName" . -}}
+{{- $names := list -}}
+{{- range $i := until (int .Values.agent.replicas) -}}
+{{- $names = append $names (printf "%s-%d" $name $i) -}}
+{{- end -}}
+{{- join " " $names -}}
+{{- end -}}
+
+{{/* "true" when each replica needs its own keypair (replicas > 1). */}}
+{{- define "salt-minion.perPodKeys" -}}
+{{- if gt (int .Values.agent.replicas) 1 -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/* Every replica is a separate minion, so it needs its own ID and keypair. */}}
+{{- define "salt-minion.validateReplicas" -}}
+{{- $minion := .Values.agent.minion -}}
+{{- if include "salt-minion.perPodKeys" . -}}
+{{- if $minion.id -}}
+{{- fail "agent.minion.id cannot be used with agent.replicas > 1 (every pod would register as the same minion); use agent.minion.idPrefix to get <prefix>-0, <prefix>-1, ..." -}}
+{{- end -}}
+{{- if $minion.privateKeyB64 -}}
+{{- fail "agent.minion.privateKeyB64/publicKeyB64 hold a single keypair and cannot be used with agent.replicas > 1; set agent.minion.keySecretName to a Secret with per-pod keys, or enable agent.minion.allowSelfGeneratedKey" -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
