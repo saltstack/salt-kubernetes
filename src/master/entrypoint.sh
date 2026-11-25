@@ -47,6 +47,12 @@ fi
 # https://docs.saltproject.io/en/latest/topics/tutorials/master-cluster.html
 #
 #   SALT_CLUSTER_ID                  cluster_id
+#   SALT_CLUSTER_NODE_ADDRESS        this master's own IP, written as `interface:`.
+#                                    Salt uses `interface` as the node identity
+#                                    in the consensus layer and matches it
+#                                    against peers' cluster_peers entries, so
+#                                    it must be the real, peer-reachable IP
+#                                    (not the 0.0.0.0 default)
 #   SALT_CLUSTER_PEERS               comma-separated peer hostnames; this
 #                                    pod's own entry (matched on the short
 #                                    hostname) is dropped, and each remaining
@@ -56,37 +62,58 @@ fi
 #   SALT_CLUSTER_PKI_DIR             cluster_pki_dir
 #   SALT_CLUSTER_POOL_PORT           cluster_pool_port (peer-to-peer RPC)
 #   SALT_CLUSTER_ISOLATED_FILESYSTEM "true" -> cluster_isolated_filesystem
+#   SALT_CLUSTER_KEYS_CACHE_DRIVER   optional keys.cache_driver (e.g. mmap_key)
+#   SALT_CLUSTER_AUTO_REPLACE_VOTERS cluster_auto_replace_voters (true/false)
+#   SALT_CLUSTER_MIN_VOTERS          cluster_min_voters
 if [ -n "${SALT_CLUSTER_ID:-}" ]; then
     CLUSTER_CONF="$CONF_DIR/98-cluster.conf"
     PEER_IPS=""
     SELF="$(hostname -s 2>/dev/null || hostname)"
 
     IFS=',' read -r -a PEER_HOSTS <<< "${SALT_CLUSTER_PEERS:-}"
-    for peer in "${PEER_HOSTS[@]:-}"; do
-        [ -n "$peer" ] || continue
-        [ "${peer%%.*}" != "$SELF" ] || continue
 
-        # Peer pods may not exist yet when the whole StatefulSet starts at
-        # once, so retry briefly; a peer that never resolves is skipped and
-        # can still join us dynamically later (it lists us as *its* peer).
-        ip=""
-        for _ in $(seq 1 30); do
+    # Salt refuses to start a cluster member without at least one peer
+    # ("Dynamic peer discovery is not supported"), so there is no founder
+    # that can start alone. Wait (up to SALT_CLUSTER_PEER_WAIT_SECONDS) for
+    # every other pod's DNS name to resolve - they all start together, so
+    # this normally takes a few seconds. After the grace period, carry on
+    # with whichever peers resolved, but fail loudly if none did.
+    deadline=$((SECONDS + ${SALT_CLUSTER_PEER_WAIT_SECONDS:-120}))
+    while :; do
+        PEER_IPS=""
+        unresolved=""
+        for peer in "${PEER_HOSTS[@]:-}"; do
+            [ -n "$peer" ] || continue
+            [ "${peer%%.*}" != "$SELF" ] || continue
+
             # getent exits 2 for an unknown host; don't let pipefail/-e kill us.
             ip="$(getent hosts "$peer" | awk '{print $1; exit}' || true)"
-            [ -z "$ip" ] || break
-            sleep 1
+            if [ -n "$ip" ]; then
+                PEER_IPS="$PEER_IPS $ip"
+            else
+                unresolved="$unresolved $peer"
+            fi
         done
-        if [ -n "$ip" ]; then
-            PEER_IPS="$PEER_IPS $ip"
-        else
-            echo "WARNING: cluster peer $peer did not resolve; skipping" >&2
-        fi
+        [ -n "$unresolved" ] || break
+        [ "$SECONDS" -lt "$deadline" ] || break
+        sleep 2
     done
+
+    if [ -z "$PEER_IPS" ]; then
+        echo "ERROR: none of the cluster peers resolved (${SALT_CLUSTER_PEERS:-<empty>}); a Salt master cluster needs at least one peer" >&2
+        exit 1
+    fi
+    [ -z "$unresolved" ] || echo "WARNING: continuing without unresolved cluster peers:$unresolved" >&2
 
     (
         umask 077
         {
             printf 'cluster_id: %s\n' "$SALT_CLUSTER_ID"
+            [ -z "${SALT_CLUSTER_NODE_ADDRESS:-}" ] || printf 'interface: %s\n' "$SALT_CLUSTER_NODE_ADDRESS"
+            # The tutorial's cluster examples use the node's IP as the master
+            # id, and peers are keyed by IP; the pod FQDN default does not
+            # match. An explicit SALT_MASTER_ID still wins (99-env.conf).
+            [ -n "${SALT_MASTER_ID:-}" ] || [ -z "${SALT_CLUSTER_NODE_ADDRESS:-}" ] || printf 'id: %s\n' "$SALT_CLUSTER_NODE_ADDRESS"
             printf 'cluster_pki_dir: %s\n' "${SALT_CLUSTER_PKI_DIR:-/etc/salt/pki/cluster}"
             [ -z "${SALT_CLUSTER_POOL_PORT:-}" ] || printf 'cluster_pool_port: %s\n' "$SALT_CLUSTER_POOL_PORT"
             [ -z "${SALT_CLUSTER_SECRET:-}" ] || printf 'cluster_secret: %s\n' "$SALT_CLUSTER_SECRET"
@@ -96,8 +123,17 @@ if [ -n "${SALT_CLUSTER_ID:-}" ]; then
             fi
             if [ "${SALT_CLUSTER_ISOLATED_FILESYSTEM:-}" = "true" ]; then
                 printf 'cluster_isolated_filesystem: True\n'
-                printf 'keys.cache_driver: mmap_key\n'
             fi
+            # SALT_CLUSTER_KEYS_CACHE_DRIVER overrides keys.cache_driver
+            # (localfs_key is Salt's default; Salt recommends mmap_key for
+            # the isolated filesystem mode).
+            [ -z "${SALT_CLUSTER_KEYS_CACHE_DRIVER:-}" ] || printf 'keys.cache_driver: %s\n' "$SALT_CLUSTER_KEYS_CACHE_DRIVER"
+            # Voter replacement: a pod's IP is its cluster identity and changes
+            # on every restart, so the old identity must be demoted and the
+            # restarted pod promoted. Salt's defaults (auto-replace off,
+            # min voters 3) never do that.
+            [ -z "${SALT_CLUSTER_AUTO_REPLACE_VOTERS:-}" ] || printf 'cluster_auto_replace_voters: %s\n' "$SALT_CLUSTER_AUTO_REPLACE_VOTERS"
+            [ -z "${SALT_CLUSTER_MIN_VOTERS:-}" ] || printf 'cluster_min_voters: %s\n' "$SALT_CLUSTER_MIN_VOTERS"
         } > "$CLUSTER_CONF"
     )
     mkdir -p "${SALT_CLUSTER_PKI_DIR:-/etc/salt/pki/cluster}"

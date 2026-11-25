@@ -80,6 +80,60 @@ spec:
                 - FOWNER
                 - DAC_OVERRIDE
       {{- end }}
+      {{- if $cluster.enabled }}
+      # Kubelet creates PVC subPath directories root-owned, and Salt must
+      # chmod/own its pki, cluster pki and cache directories as the non-root
+      # master user, so prepare them once as root (same tradeoff as the
+      # classic-mode prepare-master-keys init container).
+      initContainers:
+        - name: prepare-cluster-dirs
+          image: {{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+
+              mkdir -p /state/master-pki
+              chown 10001:10001 /state/master-pki
+              chmod 0700 /state/master-pki
+              {{- if $isolated }}
+
+              mkdir -p /state/cluster-pki /state/cache
+              chown 10001:10001 /state/cluster-pki /state/cache
+              chmod 0700 /state/cluster-pki
+              {{- end }}
+              {{- if $shared }}
+
+              mkdir -p /shared/cluster-pki /shared/cache /shared/file-roots /shared/pillar-roots
+              # Best effort: NFS with root_squash may refuse the chown; the
+              # share then needs to be writable by uid/gid 10001 already.
+              chown 10001:10001 /shared/cluster-pki /shared/cache \
+                /shared/file-roots /shared/pillar-roots || \
+                echo "WARNING: could not chown the shared directories" >&2
+              chmod 0700 /shared/cluster-pki || true
+              {{- end }}
+          volumeMounts:
+            - name: state
+              mountPath: /state
+            {{- if $shared }}
+            - name: shared
+              mountPath: /shared
+            {{- end }}
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+                - FOWNER
+                - DAC_OVERRIDE
+      {{- end }}
 
       containers:
         - name: salt-master
@@ -95,6 +149,14 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- if $cluster.enabled }}
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            # Salt's consensus layer identifies a master by its `interface`,
+            # which must be its own peer-reachable IP.
+            - name: SALT_CLUSTER_NODE_ADDRESS
+              value: $(POD_IP)
             - name: SALT_CLUSTER_ID
               value: {{ include "salt-master.clusterId" . | quote }}
             - name: SALT_CLUSTER_PEERS
@@ -105,6 +167,16 @@ spec:
               value: {{ $cluster.poolPort | quote }}
             - name: SALT_CLUSTER_ISOLATED_FILESYSTEM
               value: {{ $isolated | quote }}
+            - name: SALT_CLUSTER_AUTO_REPLACE_VOTERS
+              # hasKey: `helm upgrade --reuse-values` from an older release
+              # leaves this key unset; treat that as the default (false).
+              value: {{ if hasKey $cluster "autoReplaceVoters" }}{{ $cluster.autoReplaceVoters | quote }}{{ else }}"false"{{ end }}
+            - name: SALT_CLUSTER_MIN_VOTERS
+              value: {{ $cluster.minVoters | default (max 1 (sub (int .Values.agent.replicas) 1)) | quote }}
+            {{- with $cluster.keysCacheDriver }}
+            - name: SALT_CLUSTER_KEYS_CACHE_DRIVER
+              value: {{ . | quote }}
+            {{- end }}
             - name: SALT_CLUSTER_SECRET
               valueFrom:
                 secretKeyRef:

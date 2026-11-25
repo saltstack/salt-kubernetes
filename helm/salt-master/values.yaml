@@ -65,6 +65,24 @@ agent:
     # shared: all pods mount one ReadWriteMany claim (NFS, CephFS, ...) for
     #   cluster_pki_dir, cachedir, file_roots and pillar_roots.
     storageMode: isolated
+    # LIMITATION: a master's cluster identity is its `interface`, which here
+    # is the pod IP, and Salt has no setting to separate identity from bind
+    # address. A pod IP changes whenever the pod is rescheduled or restarted,
+    # so the restarted pod joins as a NEW learner while its old identity stays
+    # a dead voter. Salt's own recovery, cluster_auto_replace_voters, is OFF by
+    # default and was observed to demote a healthy voter instead of the dead
+    # one (breaking quorum), so the chart leaves it off. Until this is solved
+    # (stable node IPs, e.g. hostNetwork pinned per node), treat pod restarts
+    # as unsupported. Replacing a voter also needs a majority of the current
+    # voters, so use at least 3 replicas.
+    autoReplaceVoters: false
+    # Floor below which Salt will not demote a voter. Empty = replicas - 1
+    # (at least 1), i.e. one dead voter can always be replaced.
+    minVoters: ""
+    # keys.cache_driver for the cluster key store. Empty = Salt's default
+    # (localfs_key). Salt recommends mmap_key for isolated mode, but see the
+    # chart CHANGELOG: it failed to read its own keys back on Longhorn PVCs.
+    keysCacheDriver: ""
     # Per-pod volume (volumeClaimTemplates): the master's own keypair, and in
     # isolated mode also cluster_pki_dir and the cachedir.
     persistence:

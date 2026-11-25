@@ -18,6 +18,15 @@ of the image version it happens to default to — check here, not the tag number
   (the job cache is a `volumeClaimTemplate`). The headless Service gains the
   `cluster-pool` port when cluster mode is on.
 - Default image tag `3008.2` -> `3008.5`.
+- Found by testing on a real cluster: cluster mode needs `agent.replicas >= 2` (Salt refuses a
+  member with no peers), each master's `interface` and `id` must be its own pod IP (Salt uses
+  `interface` as the consensus node identity), and the state directories need a root init
+  container (`prepare-cluster-dirs`) because kubelet creates PVC subPaths root-owned. New values:
+  `agent.cluster.keysCacheDriver` (default Salt's `localfs_key`; `mmap_key` could not read its own
+  keys on Longhorn volumes), `autoReplaceVoters` (default off) and `minVoters`.
+- **Known limitation:** the pod IP is the cluster identity, so a restarted or rescheduled master
+  joins as a new learner while its old identity stays a dead voter. Treat pod restarts as
+  unsupported until the node identity can be made stable.
 
 ## salt-master-chart/v1.0.0
 **Breaking - requires a fresh install, not `helm upgrade`, from any prior release:**
