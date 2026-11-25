@@ -24,6 +24,13 @@ of the image version it happens to default to — check here, not the tag number
   container (`prepare-cluster-dirs`) because kubelet creates PVC subPaths root-owned. New values:
   `agent.cluster.keysCacheDriver` (default Salt's `localfs_key`; `mmap_key` could not read its own
   keys on Longhorn volumes), `autoReplaceVoters` (default off) and `minVoters`.
+- The init containers no longer run as root or add capabilities. `prepare-master-keys` (classic)
+  and `prepare-cluster-dirs` (cluster) run with `agent.containerSecurityContext`, create their
+  directories as the master's own user (the pod's `fsGroup` makes the volumes group-writable)
+  and the master mounts those existing subdirectories - the same pattern as the salt-minion
+  chart. The Secret with the master keys is mounted `0440`. The unused
+  `agent.initContainers.fixCachePerms` value is removed. A `sharedStorage.existingClaim` must
+  already be writable by uid/gid 10001.
 - **Known limitation:** the pod IP is the cluster identity, so a restarted or rescheduled master
   joins as a new learner while its old identity stays a dead voter. Treat pod restarts as
   unsupported until the node identity can be made stable.

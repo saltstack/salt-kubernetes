@@ -36,9 +36,14 @@ spec:
       securityContext:
         {{- toYaml .Values.agent.podSecurityContext | nindent 8 }}
       {{- if not $cluster.enabled }}
-      # Kubernetes Secret volumes are read-only. Salt needs its PKI
-      # directory to be writable so it can secure the directory and create
-      # minions_pre, minions_rejected and minions_denied.
+      # Kubernetes Secret volumes are read-only, but Salt needs a writable PKI
+      # directory (it creates minions_pre, minions_rejected and minions_denied
+      # in it). Same pattern as the salt-minion chart: this init container
+      # runs as the same non-root user as the master (the pod's fsGroup makes
+      # the 0440 Secret files readable), copies the keys into a writable
+      # emptyDir, and the master mounts that emptyDir's `master` subdirectory.
+      # The directory is created here, by the master's own user, instead of
+      # by kubelet as a subPath mount, which would leave it root-owned.
       # (Classic mode only: in cluster mode every master generates and keeps
       # its own keypair on its persistent state volume.)
       initContainers:
@@ -51,40 +56,34 @@ spec:
             - |
               set -eu
 
-              cp /var/run/salt-master-keys/master.pem \
-                 /etc/salt/pki/master/master.pem
+              umask 077
+              test -s /var/run/salt-master-keys/master.pem
+              test -s /var/run/salt-master-keys/master.pub
 
-              cp /var/run/salt-master-keys/master.pub \
-                 /etc/salt/pki/master/master.pub
-
-              chown -R 10001:10001 /etc/salt/pki/master
-              chmod 0700 /etc/salt/pki/master
-              chmod 0400 /etc/salt/pki/master/master.pem
-              chmod 0644 /etc/salt/pki/master/master.pub
+              mkdir -p /pki/master
+              chmod 0700 /pki/master
+              cp /var/run/salt-master-keys/master.pem /pki/master/master.pem
+              cp /var/run/salt-master-keys/master.pub /pki/master/master.pub
+              test -s /pki/master/master.pem
+              test -s /pki/master/master.pub
+              chmod 0400 /pki/master/master.pem
+              chmod 0644 /pki/master/master.pub
           volumeMounts:
             - name: master-keys-source
               mountPath: /var/run/salt-master-keys
               readOnly: true
             - name: master-keys
-              mountPath: /etc/salt/pki/master
+              mountPath: /pki
           securityContext:
-            runAsUser: 0
-            runAsGroup: 0
-            runAsNonRoot: false
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-              add:
-                - CHOWN
-                - FOWNER
-                - DAC_OVERRIDE
+            {{- toYaml .Values.agent.containerSecurityContext | nindent 12 }}
       {{- end }}
       {{- if $cluster.enabled }}
-      # Kubelet creates PVC subPath directories root-owned, and Salt must
-      # chmod/own its pki, cluster pki and cache directories as the non-root
-      # master user, so prepare them once as root (same tradeoff as the
-      # classic-mode prepare-master-keys init container).
+      # Kubelet creates PVC subPath directories root-owned, which the
+      # non-root master cannot chmod or own. So the directories are created
+      # here first, by the master's own user (the pod's fsGroup makes the
+      # volume root group-writable), and the master then mounts the
+      # existing subdirectories. Same non-root pattern as the salt-minion
+      # chart; no root and no added capabilities.
       initContainers:
         - name: prepare-cluster-dirs
           image: {{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}
@@ -95,24 +94,14 @@ spec:
             - |
               set -eu
 
+              umask 077
               mkdir -p /state/master-pki
-              chown 10001:10001 /state/master-pki
-              chmod 0700 /state/master-pki
               {{- if $isolated }}
-
               mkdir -p /state/cluster-pki /state/cache
-              chown 10001:10001 /state/cluster-pki /state/cache
-              chmod 0700 /state/cluster-pki
               {{- end }}
               {{- if $shared }}
-
+              # The shared volume must already be writable by this uid/gid.
               mkdir -p /shared/cluster-pki /shared/cache /shared/file-roots /shared/pillar-roots
-              # Best effort: NFS with root_squash may refuse the chown; the
-              # share then needs to be writable by uid/gid 10001 already.
-              chown 10001:10001 /shared/cluster-pki /shared/cache \
-                /shared/file-roots /shared/pillar-roots || \
-                echo "WARNING: could not chown the shared directories" >&2
-              chmod 0700 /shared/cluster-pki || true
               {{- end }}
           volumeMounts:
             - name: state
@@ -122,17 +111,7 @@ spec:
               mountPath: /shared
             {{- end }}
           securityContext:
-            runAsUser: 0
-            runAsGroup: 0
-            runAsNonRoot: false
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-              add:
-                - CHOWN
-                - FOWNER
-                - DAC_OVERRIDE
+            {{- toYaml .Values.agent.containerSecurityContext | nindent 12 }}
       {{- end }}
 
       containers:
@@ -222,6 +201,7 @@ spec:
             {{- else }}
             - name: master-keys
               mountPath: /etc/salt/pki/master
+              subPath: master
             {{- if .Values.agent.jobCache.persistence.enabled }}
             - name: job-cache
               mountPath: /var/cache/salt/master/jobs
@@ -300,11 +280,12 @@ spec:
 
       volumes:
         {{- if not $cluster.enabled }}
-        # The generated/existing Secret is mounted separately and copied
-        # into a writable emptyDir by prepare-master-keys.
+        # The generated/existing Secret is mounted read-only and copied into
+        # a writable emptyDir by prepare-master-keys.
         - name: master-keys-source
           secret:
             secretName: {{ .Values.agent.masterKeySecretName | default (printf "%s-master-keys" .Release.Name) }}
+            defaultMode: 0440
         - name: master-keys
           emptyDir: {}
         {{- end }}

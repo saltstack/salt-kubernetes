@@ -106,31 +106,21 @@ agent:
     fsGroup: 10001
     fsGroupChangePolicy: OnRootMismatch
 
-  # No added capabilities: when agent.jobCache.persistence.enabled mounts a
-  # PVC at /var/cache/salt/master/jobs, it comes back root-owned regardless
-  # of fsGroup, and capabilities.add can't fix that either - not every
-  # container runtime populates the *ambient* capability set for a
-  # non-root container (confirmed on this project's own test cluster:
-  # CapBnd includes CHOWN/FOWNER, CapEff/CapAmb are still empty, so the
-  # capability is granted but unusable), and even setcap-based file
-  # capabilities need allowPrivilegeEscalation: true to take effect on
-  # exec. initContainers.fixCachePerms below (runs as root, once, briefly)
-  # is the tradeoff instead: this long-running container never runs as
-  # root, ever.
+  # No root and no added capabilities anywhere, including the init
+  # containers: they run with this same context (as the master's own
+  # non-root user) and create the directories they need themselves, instead
+  # of a root init container chowning them. That works because the pod's
+  # fsGroup (above) makes every volume root group-writable for gid 10001,
+  # and a directory created by uid 10001 is owned by it. The same pattern is
+  # used by the salt-minion chart. Consequence: any volume you supply
+  # yourself (agent.cluster.sharedStorage.existingClaim) must already be
+  # writable by that uid/gid.
   containerSecurityContext:
     allowPrivilegeEscalation: false
     runAsNonRoot: true
     capabilities:
       drop:
         - ALL
-
-  # Only relevant when jobCache.persistence.enabled mounts a volume at
-  # /var/cache/salt/master/jobs. Reuses image.repository/tag itself (not
-  # e.g. busybox) so it can resolve 'salt' by name via that image's own
-  # /etc/passwd, rather than duplicating its numeric uid here.
-  initContainers:
-    fixCachePerms:
-      enabled: true
 
   # Auto-accepts new minion keys instead of requiring a manual `salt-key -a`
   # per minion (or a SaltMinionKey CR, once salt-key-operator is installed).
