@@ -93,7 +93,8 @@ RUN set -eu; \
     # install it over the onedir one, removing the salt-minion launcher.
     # Constrain salt to the installed version so pip only adds the
     # extensions and their other dependencies.
-    salt_installed="$(salt-pip list --format=freeze | grep -i '^salt==')"; \
+    salt-pip list --format=freeze > /tmp/salt-packages.txt; \
+    salt_installed="$(grep -i '^salt==' /tmp/salt-packages.txt)"; \
     test -n "${salt_installed}"; \
     echo "${salt_installed}" > /tmp/salt-constraint.txt; \
     set -- "$@" --constraint /tmp/salt-constraint.txt; \
@@ -106,7 +107,7 @@ RUN set -eu; \
         # hadolint ignore=SC2086
         salt-pip install --no-cache-dir "$@" ${EXTRA_SALT_EXTENSIONS}; \
     fi; \
-    rm -f /tmp/salt-extensions.txt /tmp/salt-constraint.txt
+    rm -f /tmp/salt-extensions.txt /tmp/salt-constraint.txt /tmp/salt-packages.txt
 
 # Bundled so this image needs no separate init container to reach the
 # Kubernetes API - see salt-minion-kubernetes/values.yaml (agent.kubectl.bundled).

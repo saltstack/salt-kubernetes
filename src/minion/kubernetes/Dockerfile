@@ -110,7 +110,8 @@ RUN --mount=type=secret,id=build_ca,target=/tmp/build-ca.crt,required=false \
     # install it over the onedir one, removing the salt-minion launcher.
     # Constrain salt to the installed version so pip only adds the
     # extensions and their other dependencies.
-    salt_installed="$(salt-pip list --format=freeze | grep -i '^salt==')"; \
+    salt-pip list --format=freeze > /tmp/salt-packages.txt; \
+    salt_installed="$(grep -i '^salt==' /tmp/salt-packages.txt)"; \
     test -n "${salt_installed}"; \
     echo "${salt_installed}" > /tmp/salt-constraint.txt; \
     set -- "$@" --constraint /tmp/salt-constraint.txt; \
@@ -122,7 +123,7 @@ RUN --mount=type=secret,id=build_ca,target=/tmp/build-ca.crt,required=false \
         salt-pip install --no-cache-dir "$@" \
             ${EXTRA_SALT_EXTENSIONS}; \
     fi; \
-    rm -f /tmp/salt-extensions.txt /tmp/salt-constraint.txt; \
+    rm -f /tmp/salt-extensions.txt /tmp/salt-constraint.txt /tmp/salt-packages.txt; \
     if [ -s /tmp/build-ca.crt ]; then \
         rm -f /usr/local/share/ca-certificates/build-ca.crt; \
         update-ca-certificates >/dev/null; \
