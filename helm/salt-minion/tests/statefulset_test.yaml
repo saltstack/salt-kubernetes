@@ -1,0 +1,159 @@
+suite: minion statefulset
+templates:
+  - templates/statefulset.yaml
+tests:
+  - it: prepares keys with a group-readable source
+    set:
+      agent.minion.allowSelfGeneratedKey: true
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 10001
+      - equal:
+          path: spec.template.spec.volumes[?(@.name == "minion-keys-source")].secret.defaultMode
+          value: 288  # 0440: owner and group read access
+      - equal:
+          path: spec.template.spec.volumes[?(@.name == "minion-keys-source")].secret.secretName
+          value: RELEASE-NAME-keys
+      - equal:
+          path: spec.template.spec.initContainers[?(@.name == "prepare-minion-keys")].volumeMounts[?(@.name == "minion-pki")].mountPath
+          value: /pki
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "salt-minion")].volumeMounts[?(@.name == "minion-pki")]
+          value:
+            name: minion-pki
+            mountPath: /etc/salt/pki/minion
+            subPath: minion
+
+  - it: shares the configured security context with key preparation
+    set:
+      agent.minion.keySecretName: existing-keys
+      agent.podSecurityContext.fsGroup: 2000
+      agent.containerSecurityContext.runAsUser: 2000
+      agent.containerSecurityContext.runAsGroup: 2000
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 2000
+      - equal:
+          path: spec.template.spec.initContainers[?(@.name == "prepare-minion-keys")].securityContext
+          value:
+            runAsUser: 2000
+            runAsGroup: 2000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "salt-minion")].securityContext
+          value:
+            runAsUser: 2000
+            runAsGroup: 2000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+
+  - it: uses the requested existing Secret
+    set:
+      agent.minion.keySecretName: existing-keys
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[?(@.name == "minion-keys-source")].secret.secretName
+          value: existing-keys
+
+  - it: renders external mode without requiring keys
+    set:
+      agent.authMode: external
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects missing keys when generation is disabled
+    set:
+      agent.minion.allowSelfGeneratedKey: false
+    asserts:
+      - failedTemplate:
+          errorMessage: set agent.minion.keySecretName or both agent.minion.privateKeyB64 and agent.minion.publicKeyB64, or enable agent.minion.allowSelfGeneratedKey
+
+  - it: requires a key source by default
+    asserts:
+      - failedTemplate:
+          errorMessage: set agent.minion.keySecretName or both agent.minion.privateKeyB64 and agent.minion.publicKeyB64, or enable agent.minion.allowSelfGeneratedKey
+
+  - it: renders a StatefulSet named after the ID prefix with per-pod identities
+    set:
+      agent.replicas: 3
+      agent.minion.idPrefix: external-minion
+      agent.minion.allowSelfGeneratedKey: true
+    asserts:
+      - isKind:
+          of: StatefulSet
+      - equal:
+          path: metadata.name
+          value: external-minion
+      - equal:
+          path: spec.serviceName
+          value: external-minion
+      - equal:
+          path: spec.replicas
+          value: 3
+      - notExists:
+          path: spec.template.spec.containers[?(@.name == "salt-minion")].env[?(@.name == "SALT_MINION_ID")]
+
+  - it: mounts only the pod's own keys when replicas > 1
+    set:
+      agent.replicas: 2
+      agent.minion.idPrefix: ext
+      agent.minion.allowSelfGeneratedKey: true
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[?(@.name == "prepare-minion-keys")].volumeMounts[?(@.name == "minion-keys-source")].subPathExpr
+          value: $(POD_NAME)
+      - equal:
+          path: spec.template.spec.volumes[?(@.name == "minion-keys-source")].secret.items
+          value:
+            - key: ext-0.pem
+              path: ext-0/minion.pem
+            - key: ext-0.pub
+              path: ext-0/minion.pub
+            - key: ext-1.pem
+              path: ext-1/minion.pem
+            - key: ext-1.pub
+              path: ext-1/minion.pub
+
+  - it: keeps the single shared Secret layout with one replica
+    set:
+      agent.minion.keySecretName: existing-keys
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers[?(@.name == "prepare-minion-keys")].volumeMounts[?(@.name == "minion-keys-source")].subPathExpr
+      - notExists:
+          path: spec.template.spec.volumes[?(@.name == "minion-keys-source")].secret.items
+
+  - it: allows an explicit minion ID with one replica
+    set:
+      agent.minion.id: my-minion
+      agent.minion.keySecretName: existing-keys
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "salt-minion")].env[?(@.name == "SALT_MINION_ID")].value
+          value: my-minion
+
+  - it: rejects an explicit minion ID with several replicas
+    set:
+      agent.replicas: 2
+      agent.minion.id: my-minion
+      agent.minion.allowSelfGeneratedKey: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "agent.minion.id cannot be used with agent.replicas > 1 (every pod would register as the same minion); use agent.minion.idPrefix to get <prefix>-0, <prefix>-1, ..."
+
+  - it: rejects a single static keypair with several replicas
+    set:
+      agent.replicas: 2
+      agent.minion.privateKeyB64: cHJpdmF0ZQ==
+      agent.minion.publicKeyB64: cHVibGlj
+    asserts:
+      - failedTemplate:
+          errorMessage: "agent.minion.privateKeyB64/publicKeyB64 hold a single keypair and cannot be used with agent.replicas > 1; set agent.minion.keySecretName to a Secret with per-pod keys, or enable agent.minion.allowSelfGeneratedKey"

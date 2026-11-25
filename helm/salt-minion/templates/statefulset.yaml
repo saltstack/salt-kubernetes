@@ -1,10 +1,11 @@
 {{- if eq .Values.agent.authMode "in_cluster" }}
 {{- include "salt-minion.validateKeySource" . -}}
+{{- include "salt-minion.validateReplicas" . -}}
 {{- $keySecret := include "salt-minion.keySecretName" . }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
-  name: salt-minion
+  name: {{ include "salt-minion.workloadName" . }}
   namespace: {{ .Values.namespace }}
   labels:
     app: salt-minion
@@ -12,7 +13,12 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
     helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 spec:
+  # No Service is needed: a StatefulSet only uses serviceName for pod DNS,
+  # and minions connect outbound to the master.
+  serviceName: {{ include "salt-minion.workloadName" . }}
   replicas: {{ .Values.agent.replicas }}
+  # Minions are independent of each other, so start/replace them in parallel.
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app: salt-minion
@@ -40,6 +46,11 @@ spec:
         - name: prepare-minion-keys
           image: {{ include "salt-minion.agentImage" . | quote }}
           imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           command:
             - /bin/sh
             - -c
@@ -62,6 +73,11 @@ spec:
           volumeMounts:
             - name: minion-keys-source
               mountPath: /var/run/salt-minion-keys
+              {{- if include "salt-minion.perPodKeys" . }}
+              # Each pod mounts only its own <pod-name>/ directory of the
+              # shared Secret, so it never sees the other replicas' keys.
+              subPathExpr: $(POD_NAME)
+              {{- end }}
               readOnly: true
             - name: minion-pki
               mountPath: /pki
@@ -73,6 +89,11 @@ spec:
           image: {{ include "salt-minion.agentImage" . | quote }}
           imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
           env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
             - name: SALT_MASTER
               {{- if kindIs "slice" .Values.agent.saltMasterHost }}
               value: {{ join "," .Values.agent.saltMasterHost | quote }}
@@ -173,6 +194,17 @@ spec:
           secret:
             secretName: {{ $keySecret }}
             defaultMode: 0440
+            {{- if include "salt-minion.perPodKeys" . }}
+            # Secret keys are <pod-name>.pem / <pod-name>.pub; map each pair
+            # to <pod-name>/minion.pem|pub so a pod can mount just its own.
+            items:
+              {{- range $pod := splitList " " (include "salt-minion.podNames" .) }}
+              - key: {{ $pod }}.pem
+                path: {{ $pod }}/minion.pem
+              - key: {{ $pod }}.pub
+                path: {{ $pod }}/minion.pub
+              {{- end }}
+            {{- end }}
 
         - name: minion-pki
           emptyDir: {}

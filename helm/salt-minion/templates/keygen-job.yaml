@@ -3,7 +3,9 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ .Release.Name }}-keygen
+  # Per-pod keys: the Job is idempotent and re-created per replica count, so
+  # scaling up generates only the missing keys (Job specs are immutable).
+  name: {{ .Release.Name }}-keygen{{ if include "salt-minion.perPodKeys" . }}-{{ .Values.agent.replicas }}{{ end }}
   namespace: {{ .Values.namespace }}
 spec:
   backoffLimit: 3
@@ -27,6 +29,71 @@ spec:
 
               secret={{ $secretName | quote }}
               namespace={{ .Values.namespace | quote }}
+              {{- if include "salt-minion.perPodKeys" . }}
+              pods={{ include "salt-minion.podNames" . | quote }}
+
+              temporary_directory="$(mktemp -d)"
+              trap 'rm -rf "$temporary_directory"' EXIT
+
+              exists=false
+              existing_keys=""
+              if kubectl get secret "$secret" -n "$namespace" >/dev/null 2>&1; then
+                exists=true
+                # The whole key map as JSON ({"<pod>.pem":"...",...}). Looking a
+                # key up with jsonpath does not work: kubectl needs the dots in
+                # the key escaped, an unescaped lookup silently returns nothing,
+                # and every pair would then look missing and be regenerated.
+                existing_keys="$(kubectl get secret "$secret" -n "$namespace" \
+                  -o 'jsonpath={.data}')"
+              fi
+
+              # One keypair per pod, stored as <pod>.pem / <pod>.pub. Existing
+              # pairs are never regenerated: the master already trusts them.
+              new=""
+              for pod in $pods; do
+                if [ "$exists" = true ] && \
+                   printf '%s' "$existing_keys" | grep -Fq "\"$pod.pem\":"; then
+                  echo "Keys for $pod already exist; skipping"
+                  continue
+                fi
+
+                openssl genpkey \
+                  -algorithm RSA \
+                  -pkeyopt rsa_keygen_bits:2048 \
+                  -out "$temporary_directory/$pod.pem"
+
+                openssl rsa \
+                  -pubout \
+                  -in "$temporary_directory/$pod.pem" \
+                  -out "$temporary_directory/$pod.pub"
+
+                new="$new $pod"
+              done
+
+              if [ -z "$new" ]; then
+                echo "All keys already exist; nothing to do"
+                exit 0
+              fi
+
+              if [ "$exists" = false ]; then
+                set --
+                for pod in $new; do
+                  set -- "$@" \
+                    --from-file="$pod.pem=$temporary_directory/$pod.pem" \
+                    --from-file="$pod.pub=$temporary_directory/$pod.pub"
+                done
+                kubectl create secret generic "$secret" \
+                  --namespace "$namespace" "$@"
+              else
+                for pod in $new; do
+                  pem="$(base64 < "$temporary_directory/$pod.pem" | tr -d '\n')"
+                  pub="$(base64 < "$temporary_directory/$pod.pub" | tr -d '\n')"
+                  kubectl patch secret "$secret" --namespace "$namespace" \
+                    --type merge \
+                    -p "{\"data\":{\"$pod.pem\":\"$pem\",\"$pod.pub\":\"$pub\"}}"
+                done
+              fi
+              {{- else }}
 
               if kubectl get secret "$secret" -n "$namespace" >/dev/null 2>&1; then
                 echo "Secret $secret already exists; skipping generation"
@@ -50,4 +117,5 @@ spec:
                 --namespace "$namespace" \
                 --from-file=minion.pem="$temporary_directory/minion.pem" \
                 --from-file=minion.pub="$temporary_directory/minion.pub"
+              {{- end }}
 {{- end }}

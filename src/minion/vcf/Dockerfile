@@ -88,7 +88,18 @@ RUN set -eu; \
     if [ -n "${PIP_TRUSTED_HOST}" ]; then set -- "$@" --trusted-host "${PIP_TRUSTED_HOST}"; fi; \
     if [ -n "${PIP_ONLY_BINARY}" ]; then set -- "$@" --only-binary "${PIP_ONLY_BINARY}"; fi; \
     \
-    echo "Installing extensions from salt-extensions.txt using salt-pip..."; \
+    # Extensions depend on "salt", and pip does not treat the onedir Salt as
+    # satisfying it: it would download a different Salt from the index and
+    # install it over the onedir one, removing the salt-minion launcher.
+    # Constrain salt to the installed version so pip only adds the
+    # extensions and their other dependencies.
+    salt-pip list --format=freeze > /tmp/salt-packages.txt; \
+    salt_installed="$(grep -i '^salt==' /tmp/salt-packages.txt)"; \
+    test -n "${salt_installed}"; \
+    echo "${salt_installed}" > /tmp/salt-constraint.txt; \
+    set -- "$@" --constraint /tmp/salt-constraint.txt; \
+    \
+    echo "Installing extensions from salt-extensions.txt using salt-pip (${salt_installed})..."; \
     salt-pip install --no-cache-dir "$@" -r /tmp/salt-extensions.txt; \
     \
     if [ -n "${EXTRA_SALT_EXTENSIONS}" ]; then \
@@ -96,7 +107,7 @@ RUN set -eu; \
         # hadolint ignore=SC2086
         salt-pip install --no-cache-dir "$@" ${EXTRA_SALT_EXTENSIONS}; \
     fi; \
-    rm -f /tmp/salt-extensions.txt
+    rm -f /tmp/salt-extensions.txt /tmp/salt-constraint.txt /tmp/salt-packages.txt
 
 # Bundled so this image needs no separate init container to reach the
 # Kubernetes API - see salt-minion-kubernetes/values.yaml (agent.kubectl.bundled).
