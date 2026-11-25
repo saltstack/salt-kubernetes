@@ -28,3 +28,8 @@ spec:
     - name: ret
       port: 4506
       targetPort: ret
+{{- if .Values.agent.cluster.enabled }}
+    - name: cluster-pool
+      port: {{ .Values.agent.cluster.poolPort }}
+      targetPort: cluster-pool
+{{- end }}

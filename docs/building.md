@@ -19,7 +19,7 @@ build directly from this repo with that image's own directory as the build
 context:
 
 ```bash
-docker build -t salt-master:3008.2 docker/salt-master
+docker build -t salt-master:3008.5 docker/salt-master
 docker build -t salt-minion-vcf:0.1.0 salt-minion-vcf
 docker build -t salt-minion-kubernetes:0.1.0 salt-minion-kubernetes
 ```

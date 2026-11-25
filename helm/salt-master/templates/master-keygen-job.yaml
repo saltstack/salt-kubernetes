@@ -1,6 +1,6 @@
 {{- $masterKeySecret := .Values.agent.masterKeySecretName | default (printf "%s-master-keys" .Release.Name) -}}
 {{- $existingMasterKeySecret := lookup "v1" "Secret" .Values.namespace $masterKeySecret -}}
-{{- if not $existingMasterKeySecret }}
+{{- if and (not .Values.agent.cluster.enabled) (not $existingMasterKeySecret) }}
 apiVersion: batch/v1
 kind: Job
 metadata:

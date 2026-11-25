@@ -6,6 +6,9 @@ versions it carries — check here.
 
 ## Image releases (`salt-minion-image/vX.Y.Z`)
 
+### salt-minion-image/v0.1.2
+- Salt: 3008.5 (no other change)
+
 ### salt-minion-image/v0.1.1
 - Salt: 3008.2
 - Extensions: saltext.kubernetes==2.1.0, saltext.vault==1.8.0

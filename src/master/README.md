@@ -9,7 +9,7 @@ long-running Salt Master container does not communicate with the Kubernetes API 
 
 The image:
 
-- Uses Salt `3008.2` by default.
+- Uses Salt `3008.5` by default.
 - Runs as the non-root `salt` user with UID/GID `10001`.
 - Supports an optional corporate CA during image build.
 - Does not retain the build-time corporate CA in the final image.
@@ -74,14 +74,14 @@ is not persisted in the final runtime image.
 
 | Argument | Default | Purpose |
 | --- | --- | --- |
-| `SALT_VERSION` | `3008.2` | Salt version to install. Set it to another supported version or `latest` for the newest stable onedir release. |
+| `SALT_VERSION` | `3008.5` | Salt version to install. Set it to another supported version or `latest` for the newest stable onedir release. |
 
 Example:
 
 ```bash
 docker build \
   --platform linux/arm64 \
-  --build-arg SALT_VERSION=3008.2 \
+  --build-arg SALT_VERSION=3008.5 \
   --tag salt-master:local \
   ./src/master
 ```
@@ -111,7 +111,7 @@ docker run --rm \
 Expected:
 
 ```text
-salt-master 3008.2 (Argon)
+salt-master 3008.5 (Argon)
 ```
 
 Verify the runtime identity:

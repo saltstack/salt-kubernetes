@@ -4,6 +4,21 @@ Records what each `salt-master-chart/vX.Y.Z` release tag (see
 [`docs/releasing.md`](../docs/releasing.md)) defaults to. The chart's own version is independent
 of the image version it happens to default to — check here, not the tag number.
 
+## salt-master-chart/v1.1.0
+- New `agent.cluster.*`: Salt master cluster mode (`cluster_id`, `cluster_peers`,
+  `cluster_pki_dir`, `cluster_secret`, `cluster_pool_port`). `agent.cluster.storageMode`
+  is `isolated` (default; Salt 3008 `cluster_isolated_filesystem`, one PVC per pod, no
+  shared storage) or `shared` (one ReadWriteMany claim for pki/cache/file_roots/pillar_roots).
+  In cluster mode each master keeps its own keypair, so `agent.masterKeySecretName` and the
+  master-keygen Job are not used, and `trustedMinions` writes into `cluster_pki_dir`.
+  The chart creates (and keeps across upgrades) a random `cluster_secret` Secret unless
+  `agent.cluster.secretName` is set.
+- New `agent.replicas` (default `1`) and `templates/statefulset.yaml`; the leftover
+  `templates/deployment.yaml` and standalone `templates/job-cache-pvc.yaml` are removed
+  (the job cache is a `volumeClaimTemplate`). The headless Service gains the
+  `cluster-pool` port when cluster mode is on.
+- Default image tag `3008.2` -> `3008.5`.
+
 ## salt-master-chart/v1.0.0
 **Breaking - requires a fresh install, not `helm upgrade`, from any prior release:**
 - `kind: Deployment` → `kind: StatefulSet` (`templates/deployment.yaml` removed, replaced

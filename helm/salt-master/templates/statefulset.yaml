@@ -1,5 +1,10 @@
+{{- include "salt-master.validate" . -}}
+{{- $cluster := .Values.agent.cluster -}}
+{{- $isolated := and $cluster.enabled (eq $cluster.storageMode "isolated") -}}
+{{- $shared := and $cluster.enabled (eq $cluster.storageMode "shared") -}}
+{{- $keysDir := include "salt-master.keysDir" . -}}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: salt-master
   namespace: {{ .Values.namespace }}
@@ -9,6 +14,11 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
     helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 spec:
+  serviceName: salt-master-headless
+  replicas: {{ .Values.agent.replicas }}
+  # Masters don't depend on each other's start order: cluster peers join
+  # dynamically, and classic multi-master replicas are fully independent.
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app: salt-master
@@ -25,9 +35,12 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.agent.podSecurityContext | nindent 8 }}
+      {{- if not $cluster.enabled }}
       # Kubernetes Secret volumes are read-only. Salt needs its PKI
       # directory to be writable so it can secure the directory and create
       # minions_pre, minions_rejected and minions_denied.
+      # (Classic mode only: in cluster mode every master generates and keeps
+      # its own keypair on its persistent state volume.)
       initContainers:
         - name: prepare-master-keys
           image: {{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}
@@ -66,6 +79,7 @@ spec:
                 - CHOWN
                 - FOWNER
                 - DAC_OVERRIDE
+      {{- end }}
 
       containers:
         - name: salt-master
@@ -76,23 +90,80 @@ spec:
               value: {{ .Values.agent.autoAccept | quote }}
             - name: SALT_PRESENCE_EVENTS
               value: {{ .Values.agent.presenceEvents | quote }}
+            {{- with .Values.agent.masterId }}
+            - name: SALT_MASTER_ID
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if $cluster.enabled }}
+            - name: SALT_CLUSTER_ID
+              value: {{ include "salt-master.clusterId" . | quote }}
+            - name: SALT_CLUSTER_PEERS
+              value: {{ include "salt-master.clusterPeers" . | quote }}
+            - name: SALT_CLUSTER_PKI_DIR
+              value: {{ $keysDir | quote }}
+            - name: SALT_CLUSTER_POOL_PORT
+              value: {{ $cluster.poolPort | quote }}
+            - name: SALT_CLUSTER_ISOLATED_FILESYSTEM
+              value: {{ $isolated | quote }}
+            - name: SALT_CLUSTER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "salt-master.clusterSecretName" . }}
+                  key: cluster-secret
+            {{- end }}
           ports:
             - name: publish
               containerPort: 4505
             - name: ret
               containerPort: 4506
+            {{- if $cluster.enabled }}
+            - name: cluster-pool
+              containerPort: {{ $cluster.poolPort }}
+            {{- end }}
           volumeMounts:
+            {{- if $cluster.enabled }}
+            - name: state
+              mountPath: /etc/salt/pki/master
+              subPath: master-pki
+            {{- if $isolated }}
+            - name: state
+              mountPath: {{ $keysDir }}
+              subPath: cluster-pki
+            - name: state
+              mountPath: /var/cache/salt/master
+              subPath: cache
+            {{- end }}
+            {{- if $shared }}
+            - name: shared
+              mountPath: {{ $keysDir }}
+              subPath: cluster-pki
+            - name: shared
+              mountPath: /var/cache/salt/master
+              subPath: cache
+            - name: shared
+              mountPath: /srv/salt
+              subPath: file-roots
+            - name: shared
+              mountPath: /srv/pillar
+              subPath: pillar-roots
+            {{- end }}
+            {{- else }}
             - name: master-keys
               mountPath: /etc/salt/pki/master
+            {{- if .Values.agent.jobCache.persistence.enabled }}
+            - name: job-cache
+              mountPath: /var/cache/salt/master/jobs
+            {{- end }}
+            {{- end }}
             {{- if .Values.agent.trustedMinions.enabled }}
             # These are writable directories populated by the
             # trusted-minions-sync sidecar.
             - name: trusted-minions-live
-              mountPath: /etc/salt/pki/master/minions
+              mountPath: {{ $keysDir }}/minions
             - name: trusted-minions-pre
-              mountPath: /etc/salt/pki/master/minions_pre
+              mountPath: {{ $keysDir }}/minions_pre
             - name: trusted-minions-rejected
-              mountPath: /etc/salt/pki/master/minions_rejected
+              mountPath: {{ $keysDir }}/minions_rejected
             {{- end }}
           securityContext:
             {{- toYaml .Values.agent.containerSecurityContext | nindent 12 }}
@@ -114,15 +185,15 @@ spec:
                   [ -e "$f" ] || continue
 
                   b="$(basename "$f")"
-                  cp -f "$f" "/etc/salt/pki/master/minions/$b"
+                  cp -f "$f" "{{ $keysDir }}/minions/$b"
 
                   # An accepted key must not also remain pending or rejected.
                   rm -f \
-                    "/etc/salt/pki/master/minions_pre/$b" \
-                    "/etc/salt/pki/master/minions_rejected/$b"
+                    "{{ $keysDir }}/minions_pre/$b" \
+                    "{{ $keysDir }}/minions_rejected/$b"
                 done
 
-                for f in /etc/salt/pki/master/minions/*; do
+                for f in {{ $keysDir }}/minions/*; do
                   [ -e "$f" ] || continue
 
                   b="$(basename "$f")"
@@ -139,11 +210,11 @@ spec:
               mountPath: /var/run/salt-key-operator/trusted-minions
               readOnly: true
             - name: trusted-minions-live
-              mountPath: /etc/salt/pki/master/minions
+              mountPath: {{ $keysDir }}/minions
             - name: trusted-minions-pre
-              mountPath: /etc/salt/pki/master/minions_pre
+              mountPath: {{ $keysDir }}/minions_pre
             - name: trusted-minions-rejected
-              mountPath: /etc/salt/pki/master/minions_rejected
+              mountPath: {{ $keysDir }}/minions_rejected
           securityContext:
             {{- toYaml .Values.agent.containerSecurityContext | nindent 12 }}
           resources:
@@ -156,6 +227,7 @@ spec:
         {{- end }}
 
       volumes:
+        {{- if not $cluster.enabled }}
         # The generated/existing Secret is mounted separately and copied
         # into a writable emptyDir by prepare-master-keys.
         - name: master-keys-source
@@ -163,7 +235,12 @@ spec:
             secretName: {{ .Values.agent.masterKeySecretName | default (printf "%s-master-keys" .Release.Name) }}
         - name: master-keys
           emptyDir: {}
-
+        {{- end }}
+        {{- if $shared }}
+        - name: shared
+          persistentVolumeClaim:
+            claimName: {{ $cluster.sharedStorage.existingClaim }}
+        {{- end }}
         {{- if .Values.agent.trustedMinions.enabled }}
         - name: trusted-minions-src
           configMap:
@@ -175,3 +252,32 @@ spec:
         - name: trusted-minions-rejected
           emptyDir: {}
         {{- end }}
+
+  {{- if or $cluster.enabled .Values.agent.jobCache.persistence.enabled }}
+  volumeClaimTemplates:
+    {{- if $cluster.enabled }}
+    - metadata:
+        name: state
+      spec:
+        accessModes:
+          - {{ $cluster.persistence.accessMode }}
+        {{- with $cluster.persistence.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $cluster.persistence.size }}
+    {{- else }}
+    - metadata:
+        name: job-cache
+      spec:
+        accessModes:
+          - {{ .Values.agent.jobCache.persistence.accessMode }}
+        {{- with .Values.agent.jobCache.persistence.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.agent.jobCache.persistence.size }}
+    {{- end }}
+  {{- end }}

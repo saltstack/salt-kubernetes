@@ -4,14 +4,21 @@ Check the workload:
 
   kubectl -n {{ .Values.namespace }} get pods -l app=salt-master
 
+{{- if .Values.agent.cluster.enabled }}
+Salt master cluster "{{ include "salt-master.clusterId" . }}" ({{ .Values.agent.replicas }} replicas, {{ .Values.agent.cluster.storageMode }} storage).
+Point minions at the flat Service (salt-master.{{ .Values.namespace }}.svc), not at individual pods. Verify:
+
+  kubectl -n {{ .Values.namespace }} exec salt-master-0 -c salt-master -- salt-run cluster.members
+{{- end }}
+
 Check the Salt Master logs:
 
-  kubectl -n {{ .Values.namespace }} logs deployment/salt-master \
+  kubectl -n {{ .Values.namespace }} logs statefulset/salt-master \
     --container salt-master
 
 List known minion keys:
 
-  kubectl -n {{ .Values.namespace }} exec deployment/salt-master \
+  kubectl -n {{ .Values.namespace }} exec statefulset/salt-master \
     --container salt-master \
     -- salt-key -L
 
@@ -47,7 +54,7 @@ salt-key-operator integration is disabled.
 
 Accept a pending minion manually:
 
-  kubectl -n {{ .Values.namespace }} exec deployment/salt-master \
+  kubectl -n {{ .Values.namespace }} exec statefulset/salt-master \
     --container salt-master \
     -- salt-key -a '<minion-id>'
 

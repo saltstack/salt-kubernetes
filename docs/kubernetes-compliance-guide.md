@@ -29,11 +29,11 @@ context.
 ### 1a. salt-master
 
 ```bash
-docker build -t salt-master:3008.2 docker/salt-master
+docker build -t salt-master:3008.5 docker/salt-master
 ```
 
 Override `SALT_VERSION` to pin a different Salt release (defaults to
-`3008.2` — see [`docker/salt-master/CHANGELOG.md`](../docker/salt-master/CHANGELOG.md)):
+`3008.5` — see [`docker/salt-master/CHANGELOG.md`](../docker/salt-master/CHANGELOG.md)):
 
 ```bash
 docker build --build-arg SALT_VERSION=3007.1 -t salt-master:3007.1 docker/salt-master

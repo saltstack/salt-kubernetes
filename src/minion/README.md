@@ -20,7 +20,7 @@ This minion is designed specifically for running inside Kubernetes clusters and 
 
 The image:
 
-- Uses Salt `3008.2` by default
+- Uses Salt `3008.5` by default
 - Runs as the non-root `salt` user with UID/GID `10000`
 - Supports optional corporate CA during image build
 - Does not retain build-time corporate CA in final image
@@ -77,14 +77,14 @@ docker build \
 
 | Argument | Default | Purpose |
 | --- | --- | --- |
-| `SALT_VERSION` | `3008.2` | Salt version to install |
+| `SALT_VERSION` | `3008.5` | Salt version to install |
 
 Example:
 
 ```bash
 docker build \
   --platform linux/arm64 \
-  --build-arg SALT_VERSION=3008.2 \
+  --build-arg SALT_VERSION=3008.5 \
   --tag salt-minion:local \
   ./src/minion/kubernetes
 ```
@@ -114,7 +114,7 @@ docker run --rm \
 Expected:
 
 ```text
-salt-minion 3008.2 (Argon)
+salt-minion 3008.5 (Argon)
 ```
 
 Verify runtime identity and permissions:

@@ -29,7 +29,7 @@ set -euo pipefail
 #------------------------------------------------------------
 # Configuration
 #------------------------------------------------------------
-IMAGE_TAG_MASTER="3008.2"
+IMAGE_TAG_MASTER="3008.5"
 MINION_K8S_IMAGE_TAG="0.1.0"
 MINION_VCF_IMAGE_TAG="0.1.0"
 MAX_IMAGE_SIZE=$((500 * 1024 * 1024))   # 500 MiB

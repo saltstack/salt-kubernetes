@@ -9,7 +9,7 @@ FROM ubuntu:24.04
 
 # Pinned rather than "latest" so a given salt-master-image release tag
 # reproducibly carries one specific Salt version - see CHANGELOG.md.
-ARG SALT_VERSION=3008.2
+ARG SALT_VERSION=3008.5
 
 LABEL org.opencontainers.image.title="Salt Master"
 LABEL org.opencontainers.image.description="Salt Master runtime for VCF Salt"

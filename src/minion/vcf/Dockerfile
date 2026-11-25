@@ -9,7 +9,7 @@ FROM ubuntu:24.04
 ARG DEBIAN_FRONTEND=noninteractive
 # Pinned rather than "latest" so a given salt-minion-kubernetes-image release
 # tag reproducibly carries one specific Salt version - see CHANGELOG.md.
-ARG SALT_VERSION=3008.2
+ARG SALT_VERSION=3008.5
 ARG SALT_UID=10001
 ARG SALT_GID=10001
 ARG SALT_HOME=/opt/saltstack/salt

@@ -12,7 +12,7 @@ agent:
     # scripts/push-image-to-nodes.sh --role=master, or set repository to the
     # GHCR path to pull instead.
     repository: salt-master
-    tag: "3008.2"
+    tag: "3008.5"
     pullPolicy: IfNotPresent
 
   # 1 (default) = simplest possible setup: single master, single Service
@@ -29,6 +29,52 @@ agent:
   # change. Also requires agent.masterKeySecretName (the chart fails fast
   # otherwise) - every replica must share the identical keypair.
 
+
+  replicas: 1
+
+  # Salt master cluster (Salt 3007+; the isolated-filesystem mode below needs
+  # 3008+). Distinct from the classic multi-master mode described above: all
+  # masters present ONE cluster identity to minions, so a plain Service in
+  # front of the StatefulSet (service.type/service.gateway) is the intended
+  # minion endpoint - any replica can serve any minion, and jobs/events are
+  # routed between peers. Each master keeps its OWN master keypair; the
+  # cluster-wide keypair and the accepted minion keys live in cluster_pki_dir.
+  # See https://docs.saltproject.io/en/latest/topics/tutorials/master-cluster.html
+  #
+  # When enabled: masterKeySecretName is not used (no shared master keypair),
+  # jobCache.persistence is ignored (the state volume below holds the cache),
+  # and trustedMinions writes into <cluster_pki_dir>/minions instead.
+  cluster:
+    enabled: false
+    # cluster_id. Defaults to the release name.
+    id: ""
+    clusterDomain: cluster.local
+    # cluster_pool_port: peer-to-peer RPC between masters (headless Service
+    # and container port are added automatically). Must be reachable between
+    # pods; never expose it outside the cluster.
+    poolPort: 4520
+    # Secret holding key 'cluster-secret' (cluster_secret: authenticates
+    # masters joining the cluster). Empty = the chart creates
+    # <release>-cluster-secret with a random value on first install and
+    # keeps it across upgrades.
+    secretName: ""
+    # isolated: Salt 3008+ cluster_isolated_filesystem - every pod keeps its
+    #   own cluster_pki_dir/cachedir on its own PVC and peers sync in-band.
+    #   No shared storage required. file_roots/pillar_roots then have to be
+    #   propagated with `salt-run cluster.sync_roots`.
+    # shared: all pods mount one ReadWriteMany claim (NFS, CephFS, ...) for
+    #   cluster_pki_dir, cachedir, file_roots and pillar_roots.
+    storageMode: isolated
+    # Per-pod volume (volumeClaimTemplates): the master's own keypair, and in
+    # isolated mode also cluster_pki_dir and the cachedir.
+    persistence:
+      storageClassName: ""
+      accessMode: ReadWriteOnce
+      size: 5Gi
+    # storageMode=shared only: an EXISTING ReadWriteMany PVC, used with
+    # subPaths cluster-pki, cache, file-roots and pillar-roots.
+    sharedStorage:
+      existingClaim: ""
 
   # No numeric runAsUser/runAsGroup/fsGroup here on purpose - the image runs
   # as the 'salt' system user salt-common's own postinst creates (or this

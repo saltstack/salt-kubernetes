@@ -54,8 +54,11 @@ The following table lists the most commonly overridden values. See
 | --- | --- | --- |
 | `namespace` | Namespace for all chart resources. | `salt-master` |
 | `agent.image.repository` | Salt master image repository. | `salt-master` |
-| `agent.image.tag` | Salt master image tag. | `3007.1` |
+| `agent.image.tag` | Salt master image tag. | `3008.5` |
 | `agent.replicas` | Number of master replicas (active-active - see below). | `1` |
+| `agent.cluster.enabled` | Salt master cluster mode (see "Master cluster" below). | `false` |
+| `agent.cluster.storageMode` | `isolated` (per-pod PVCs, Salt 3008+) or `shared` (one RWX claim). | `isolated` |
+| `agent.cluster.secretName` | Existing Secret with key `cluster-secret`. Empty = chart generates one. | `""` |
 | `agent.masterKeySecretName` | Existing Secret with the master's keypair (`private-key-b64`/`public-key-b64`). **Required** when `agent.replicas > 1`. | `""` |
 | `agent.autoAccept` | Auto-accept new minion keys instead of requiring `salt-key -a`/a `SaltMinionKey`. Leave `false` for a production master. | `false` |
 | `agent.masterId` | Sets `id:` on the master itself. Empty uses the pod hostname. Need not be unique across replicas. | `""` |
@@ -67,6 +70,25 @@ The following table lists the most commonly overridden values. See
 | `service.gateway.enabled` | Expose the flat Service via a Gateway API `TCPRoute` (e.g. Envoy Gateway) instead of/alongside NodePort. See "External access" below. | `false` |
 | `service.perOrdinal.enabled` | One Service per replica ordinal - needed for **external** minions to hold independent connections to every replica (see "Active-active" below). | `false` |
 | `service.perOrdinal.type` | `ClusterIP`, `NodePort`, or `LoadBalancer` for each per-ordinal Service. | `ClusterIP` |
+
+## Master cluster
+
+With `agent.cluster.enabled=true` the masters form a
+[Salt master cluster](https://docs.saltproject.io/en/latest/topics/tutorials/master-cluster.html):
+minions see one cluster identity, so point them at the flat `salt-master` Service and
+any replica can serve any minion (unlike the classic multi-master mode above).
+
+```bash
+helm install salt-master . --set agent.cluster.enabled=true --set agent.replicas=3
+kubectl -n salt-master exec salt-master-0 -c salt-master -- salt-run cluster.members
+```
+
+- `isolated` (default): each pod keeps `cluster_pki_dir` and `cachedir` on its own PVC
+  and peers sync in-band. `file_roots`/`pillar_roots` changes must be propagated with
+  `salt-run cluster.sync_roots`.
+- `shared`: set `agent.cluster.sharedStorage.existingClaim` to a ReadWriteMany PVC.
+- Each master has its own keypair; `agent.masterKeySecretName` is ignored. Do not expose
+  the `cluster-pool` port outside the cluster.
 
 ## External access
 
