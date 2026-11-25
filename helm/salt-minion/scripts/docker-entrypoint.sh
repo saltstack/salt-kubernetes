@@ -45,7 +45,7 @@ if [ -n "${SALT_MASTER:-}" ]; then
 
   # A comma-separated SALT_MASTER (e.g. "master-0,master-1,master-2")
   # renders as a YAML list instead of a scalar - Salt's native multi-master
-  # mode (https://docs.saltproject.io/en/3006/topics/tutorials/multimaster.html):
+  # mode (https://docs.saltproject.io/en/3008/topics/tutorials/multimaster.html):
   # one independent, simultaneous connection per address, not failover.
   case "${SALT_MASTER}" in
     *,*)

@@ -205,7 +205,7 @@ a non-root master cannot create directories under `/var/run`.
 Cluster mode (Salt 3007+; `SALT_CLUSTER_ISOLATED_FILESYSTEM` needs Salt 3008+) is enabled by
 setting `SALT_CLUSTER_ID`. The entrypoint then writes `/etc/salt/master.d/98-cluster.conf`
 (mode `0600`) and creates the cluster PKI directory. See the
-[Salt master cluster tutorial](https://docs.saltproject.io/en/latest/topics/tutorials/master-cluster.html).
+[Salt master cluster tutorial](https://docs.saltproject.io/en/3008/topics/tutorials/master-cluster.html).
 
 | Variable | Effect |
 | --- | --- |

@@ -44,7 +44,7 @@ fi
 
 # Optional: Salt master cluster mode (Salt 3007+; isolated filesystem mode
 # needs 3008+). Enabled by setting SALT_CLUSTER_ID. See
-# https://docs.saltproject.io/en/latest/topics/tutorials/master-cluster.html
+# https://docs.saltproject.io/en/3008/topics/tutorials/master-cluster.html
 #
 #   SALT_CLUSTER_ID                  cluster_id
 #   SALT_CLUSTER_NODE_ADDRESS        this master's own IP, written as `interface:`.

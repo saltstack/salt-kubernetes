@@ -42,7 +42,7 @@ agent:
   # minion endpoint - any replica can serve any minion, and jobs/events are
   # routed between peers. Each master keeps its OWN master keypair; the
   # cluster-wide keypair and the accepted minion keys live in cluster_pki_dir.
-  # See https://docs.saltproject.io/en/latest/topics/tutorials/master-cluster.html
+  # See https://docs.saltproject.io/en/3008/topics/tutorials/master-cluster.html
   #
   # When enabled: needs replicas >= 2 (the chart fails below that: Salt
   # refuses a member with no peers); use 3 or more to tolerate a failure.
@@ -168,7 +168,7 @@ agent:
   #     --from-file=master.pem --from-file=master.pub
   # REQUIRED when replicas > 1 (every pod must present the identical
   # keypair, matching Salt's own multi-master convention - see
-  # https://docs.saltproject.io/en/3006/topics/tutorials/multimaster.html,
+  # https://docs.saltproject.io/en/3008/topics/tutorials/multimaster.html,
   # "masters share the same private key") - the chart fails to render
   # otherwise. The Secret is mounted 0440 and copied by the prepare-master-keys
   # init container into a writable emptyDir.

@@ -48,7 +48,7 @@ agent:
   replicas: 1
   # Salt master address. Required when authMode=in_cluster. Also accepts a
   # list, for Salt's native multi-master mode
-  # (https://docs.saltproject.io/en/3006/topics/tutorials/multimaster.html) -
+  # (https://docs.saltproject.io/en/3008/topics/tutorials/multimaster.html) -
   # one independent, simultaneous connection per address, not failover, and
   # every listed master has to accept every minion key. Use it for independent
   # masters, e.g. the classic multi-master mode of the salt-master chart

@@ -96,7 +96,7 @@ Applies to both `src/minion/kubernetes` and `src/minion/vcf`.
   there, but a self-generated key now needs that explicit opt-out too, not
   just an empty `keySecretName`.
 - `agent.saltMasterHost` now also accepts a YAML list, for Salt's native
-  [multi-master mode](https://docs.saltproject.io/en/3006/topics/tutorials/multimaster.html) -
+  [multi-master mode](https://docs.saltproject.io/en/3008/topics/tutorials/multimaster.html) -
   point it at every replica address of an active-active
   `salt-master-kubernetes` release instead of a single master.
 - Default image: `salt-minion:0.1.1` (see "Image releases" above for what that

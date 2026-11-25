@@ -4,10 +4,10 @@ Installs a Salt master as a Kubernetes `StatefulSet` (`salt-master`, pods
 `salt-master-0` .. `salt-master-N-1`). It runs in one of two modes:
 
 - **Classic** (default, `agent.cluster.enabled=false`): one master, or Salt's
-  native [multi-master mode](https://docs.saltproject.io/en/3006/topics/tutorials/multimaster.html)
+  native [multi-master mode](https://docs.saltproject.io/en/3008/topics/tutorials/multimaster.html)
   with several independent masters that share one pre-supplied keypair.
 - **Master cluster** (`agent.cluster.enabled=true`, opt-in): Salt's
-  [master cluster](https://docs.saltproject.io/en/latest/topics/tutorials/master-cluster.html),
+  [master cluster](https://docs.saltproject.io/en/3008/topics/tutorials/master-cluster.html),
   where the masters present one identity to minions. **Read the known
   limitation below before using it.**
 

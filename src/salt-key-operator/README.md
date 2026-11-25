@@ -10,7 +10,7 @@ for running `salt-key -a <minion-id>` by hand against a
 `salt-master` (see `../../helm/salt-master/README.md`) supports
 running multiple master replicas, either as classic multi-master (all replicas
 share one keypair) or as a Salt master cluster, and runs as a StatefulSet. Classic
-multi-master uses Salt's own [multi-master mode](https://docs.saltproject.io/en/3006/topics/tutorials/multimaster.html).
+multi-master uses Salt's own [multi-master mode](https://docs.saltproject.io/en/3008/topics/tutorials/multimaster.html).
 That doc explicitly calls out a gap vanilla Salt multi-master doesn't solve:
 
 > Keys accepted, deleted, or rejected on one master will NOT be
