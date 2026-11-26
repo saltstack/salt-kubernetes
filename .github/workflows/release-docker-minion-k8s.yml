@@ -3,7 +3,7 @@ name: Release Docker - Salt Minion K8s
 on:
   push:
     tags:
-      - 'salt-minion-v*'
+      - 'salt-minion-kubernetes-v*'
   schedule:
     - cron: '0 3 * * 1' # Every Monday at 3:00 AM UTC
   workflow_dispatch:
@@ -30,7 +30,7 @@ jobs:
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             TAG_NAME=${GITHUB_REF#refs/tags/}
-            VERSION=${TAG_NAME#salt-minion-v}
+            VERSION=${TAG_NAME#salt-minion-kubernetes-v}
             echo "is_tag=true" >> $GITHUB_OUTPUT
           else
             VERSION="latest"

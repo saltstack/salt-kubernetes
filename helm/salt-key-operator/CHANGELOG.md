@@ -6,6 +6,11 @@ headings below use the older `salt-key-operator-chart/vX.Y.Z` naming. The chart'
 version is independent of the image version it happens to default to —
 check here, not the tag number.
 
+## Unreleased
+- The default image repository is now `ghcr.io/saltstack/salt-key-operator`, where the image
+  workflow publishes. The previous default, `ghcr.io/saltstack/salt-kubernetes/salt-key-operator`,
+  does not exist.
+
 ## salt-key-operator-chart/v0.1.0
 - Default image: `salt-key-operator:0.1.0` (see
   [`src/salt-key-operator/CHANGELOG.md`](../../src/salt-key-operator/CHANGELOG.md) for what that image version carries).

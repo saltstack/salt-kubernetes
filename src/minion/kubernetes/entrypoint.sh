@@ -8,7 +8,7 @@ RUNTIME_CONFIG="${CONFIG_DIR}/20-runtime.conf"
 mkdir -p "$CONFIG_DIR" /etc/salt/pki/minion /var/cache/salt/minion/.socks /var/log/salt
 
 # Pre-seed the minion's own RSA keypair when supplied - same pattern as
-# salt-minion-vcf/scripts/docker-entrypoint.sh. Only applied when
+# src/minion/vcf/entrypoint.sh. Only applied when
 # minion.pem doesn't already exist, so a restarted/rescheduled container
 # (persistent PKI volume) keeps its established identity rather than
 # re-seeding on every start.
@@ -93,7 +93,7 @@ elif [ ! -s "$MASTER_CONFIG" ]; then
   exit 64
 fi
 
-# FIPS-compliant crypto defaults - see salt-minion-vcf/scripts/docker-entrypoint.sh
+# FIPS-compliant crypto defaults - see src/minion/vcf/entrypoint.sh
 # for the full rationale (masters running FIPS-validated crypto don't
 # implement SHA-1 for RSA OAEP/PKCS1v15, which breaks auth with a minion
 # defaulting to it). Set SALT_FIPS_MODE=false only if your target master is
@@ -130,7 +130,7 @@ EOF
 # Optional Vault integration (saltext.vault): configures the 'vault' auth/
 # server block plus an sdb profile so pillar values can reference
 # sdb://vault_sdb/<path>:<key> instead of containing plaintext secrets. Same
-# shape as salt-minion-vcf/scripts/docker-entrypoint.sh.
+# shape as src/minion/vcf/entrypoint.sh.
 if [ -n "${VAULT_ADDR:-}" ]; then
   if [ -n "${VAULT_SECRET_ID_FILE:-}" ] && [ -f "${VAULT_SECRET_ID_FILE}" ]; then
     VAULT_SECRET_ID="$(cat "${VAULT_SECRET_ID_FILE}")"

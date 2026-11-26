@@ -4,7 +4,7 @@ image:
   # the path you actually publish and override repository to match.
   # Distroless static image - runs as the built-in "nonroot" user (uid/gid 65532), no numeric override needed here the way
   # this repo's other (apt/onedir-based) images require.
-  repository: ghcr.io/saltstack/salt-kubernetes/salt-key-operator
+  repository: ghcr.io/saltstack/salt-key-operator
   tag: "0.1.0"
   pullPolicy: IfNotPresent
 

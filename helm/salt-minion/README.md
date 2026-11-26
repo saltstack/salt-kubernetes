@@ -212,7 +212,7 @@ See [values.yaml](values.yaml) for the complete list of configuration options.
 | `agent.minion.masterPubKeyB64` | Base64-encoded master public key, passed as `SALT_MASTER_PUBKEY_B64` so the minion trusts the master directly | `""` |
 | `agent.podSecurityContext` | Pod security context; `fsGroup` gives the containers access to the key Secret and the PKI volume | `{"fsGroup": 10001, "runAsNonRoot": true}` |
 | `agent.containerSecurityContext` | Security context shared by the minion and the `prepare-minion-keys` init container | `{"allowPrivilegeEscalation": false, "runAsNonRoot": true, "capabilities": {"drop": ["ALL"]}}` |
-| `agent.image.repository` | Minion image repository | `ghcr.io/saltstack/salt-kubernetes/salt-minion` |
+| `agent.image.repository` | Minion image repository | `ghcr.io/saltstack/salt-minion` |
 | `agent.image.tag` | Minion image tag | `0.1.0` |
 | `agent.image.pullPolicy` | Minion image pull policy | `IfNotPresent` |
 | `agent.image.imagePullSecrets` | Pull Secrets for the minion pods | `[]` |
@@ -220,6 +220,8 @@ See [values.yaml](values.yaml) for the complete list of configuration options.
 | `keygen.image.tag` | Key generation image tag | `latest` |
 | `keygen.image.pullPolicy` | Key generation image pull policy | `Always` |
 | `keygen.image.imagePullSecrets` | Pull Secrets for the key generation Job | `[]` |
+| `keygen.podSecurityContext` | Pod security context of the key generation Job | `runAsNonRoot: true`, `seccompProfile: RuntimeDefault` |
+| `keygen.containerSecurityContext` | Container security context of the key generation Job | no privilege escalation, all capabilities dropped |
 | `agent.saltMasterHost` | Salt master hostname, or a list of masters (REQUIRED in in_cluster mode) | `""` |
 | `agent.saltMasterPort` | Master request/return port (`master_port`) | `4506` |
 | `agent.saltPublishPort` | Master publish port (`publish_port`) | `4505` |
@@ -232,10 +234,7 @@ See [values.yaml](values.yaml) for the complete list of configuration options.
 | `serviceAccount.name` | ServiceAccount name | `salt-minion` |
 
 The chart has no persistence settings. The minion's PKI directory is an `emptyDir`,
-and the keys always come from a Secret (see below). `agent.minion.grains` and
-`agent.minion.masterId` exist in `values.yaml` but are only written to the
-`<release>-minion-config` ConfigMap, which nothing mounts, so they currently have no
-effect on the minion.
+and the keys always come from a Secret (see below).
 
 ### Pod identity
 

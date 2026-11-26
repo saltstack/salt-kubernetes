@@ -119,6 +119,7 @@ The following table lists the most commonly overridden values. See
 | `namespace` | Namespace for all chart resources. | `salt-master` |
 | `agent.image.repository` | Salt master image repository. | `salt-master` |
 | `agent.image.tag` | Salt master image tag (the Salt version the image carries). | `3008.5` |
+| `agent.image.imagePullSecrets` | Pull Secrets for the master image (list of `{name: ...}`), for a private registry. | `[]` |
 | `agent.replicas` | Number of masters (StatefulSet replicas). `> 1` needs `agent.masterKeySecretName` (classic) or `agent.cluster.enabled` (cluster, which needs `>= 2`; use 3 or more). | `1` |
 | `agent.masterKeySecretName` | Classic mode. Existing Secret with the master keypair as raw files under keys `master.pem` and `master.pub`. **Required** when `agent.replicas > 1` and cluster mode is off. Empty uses `<release>-master-keys`, created by a one-time Job if missing. Ignored in cluster mode. | `""` |
 | `agent.autoAccept` | Auto-accept new minion keys instead of requiring `salt-key -a`/a `SaltMinionKey`. Leave `false` for a production master. | `false` |
@@ -129,6 +130,8 @@ The following table lists the most commonly overridden values. See
 | `agent.trustedMinions.enabled` | Delegate minion acceptance to `salt-key-operator` (../salt-key-operator) instead of `salt-key -a`. See "Minion acceptance" below. | `true` |
 | `agent.trustedMinions.createConfigMap` / `.configMapName` / `.syncIntervalSeconds` | Whether the chart creates the ConfigMap, its name, and how often the sidecar copies it into Salt's key directories. | `true` / `salt-master-trusted-minions` / `15` |
 | `agent.nodeSelector` | Pins every replica to a node. | `{}` |
+| `keygen.image.repository` / `.tag` / `.pullPolicy` / `.imagePullSecrets` | Image of the one-time Job that generates the master keypair (classic mode); it needs `kubectl` and `openssl`. | `bitnami/kubectl` / `latest` / `Always` / `[]` |
+| `keygen.podSecurityContext` / `keygen.containerSecurityContext` | Security contexts of that Job: non-root, `RuntimeDefault` seccomp, no privilege escalation, all capabilities dropped. | see `values.yaml` |
 | `agent.podSecurityContext` / `agent.containerSecurityContext` | Non-root uid/gid `10001`, `fsGroup: 10001`, all capabilities dropped. Used by the master, the sidecar and the init containers. | see `values.yaml` |
 | `service.type` | `ClusterIP`, `NodePort`, or `LoadBalancer` for the flat `salt-master` Service. `ClusterIP` (in-cluster only) by default - see "External access". | `ClusterIP` |
 | `service.nodePorts.publish` / `.ret` | Node ports used when `service.type=NodePort`. | `30505` / `30506` |
@@ -242,6 +245,12 @@ roll the pods in cluster mode as unsupported, and use cluster mode only where
 you can accept rebuilding the cluster (reinstall and, if needed, delete the
 `state` PVCs) after a restart. Classic mode is not affected. Cluster mode is
 opt-in and is not the default.
+
+### One release per namespace
+
+The chart names its resources fixed names (the StatefulSet `salt-master`, the Services
+`salt-master` and `salt-master-headless`, and the peer DNS names derived from them), not
+names built from the release name. Install at most one release of this chart per namespace.
 
 ### What was tested
 

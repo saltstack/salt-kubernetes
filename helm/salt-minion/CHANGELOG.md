@@ -28,6 +28,9 @@ Applies to both `src/minion/kubernetes` and `src/minion/vcf`.
 - Extensions are unchanged: `saltext.kubernetes==2.1.0`, `saltext.vault==1.8.0` in both
   images, plus `saltext.vcf==1.0.0` and `saltext.bmc==0.0.1` in the VCF image.
 
+- Removed the unused `SALT_GPG_KEY_URL` and `SALT_APT_REPO_URL` build arguments, and corrected
+  comments that still named the old chart and file paths.
+
 ### salt-minion-image/v0.1.2
 - Salt: 3008.5 (no other change)
 
@@ -86,6 +89,18 @@ Applies to both `src/minion/kubernetes` and `src/minion/vcf`.
   `keygen.image.{repository,tag,pullPolicy,imagePullSecrets}` (default `bitnami/kubectl:latest`).
 - Documentation: the README now describes the StatefulSet identity model and key
   layouts, and how to run the helm-unittest suites (`helm unittest helm/salt-minion`).
+
+- The key generation Job now runs with a restricted security context (new
+  `keygen.podSecurityContext` and `keygen.containerSecurityContext`: non-root, `RuntimeDefault`
+  seccomp, no privilege escalation, all capabilities dropped). Checked on a real cluster.
+- Removed `agent.minion.grains` and `agent.minion.masterId`, and the `<release>-minion-config`
+  ConfigMap they were written to: nothing mounted that ConfigMap, so they never had any effect.
+- The default image repository is now `ghcr.io/saltstack/salt-minion`, where the image workflow
+  publishes. The previous default, `ghcr.io/saltstack/salt-kubernetes/salt-minion`, does not
+  exist. The `0.1.0` tag at the new path exists only once the Kubernetes minion image has been
+  released (the workflow now triggers on `salt-minion-kubernetes-v*`; see `docs/releasing.md`).
+- Removed the unused `scripts/` copies of the entrypoint scripts and `salt-extensions.txt` from the
+  chart (the images read the files under `src/minion/`). `Chart.yaml` now describes a StatefulSet.
 
 ### salt-minion-chart/v1.0.0
 **Breaking - defaults change on `helm upgrade` from any prior release:**

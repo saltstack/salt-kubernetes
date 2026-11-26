@@ -18,7 +18,7 @@ mkdir -p "$CONF_DIR"
     # /run fresh (root-owned, 0755) on every pod start regardless of what's
     # baked into the image, so a non-root master can never mkdir under
     # /var/run/salt/master - same reasoning/pattern as
-    # salt-minion-vcf/scripts/docker-entrypoint.sh's pidfile/sock_dir.
+    # src/minion/kubernetes/entrypoint.sh's pidfile/sock_dir.
     printf 'pidfile: /var/cache/salt/master/master.pid\n'
     printf 'sock_dir: /var/cache/salt/master/.socks\n'
 } > "$CONF_DIR/99-env.conf"

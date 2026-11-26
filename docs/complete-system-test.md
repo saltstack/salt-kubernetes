@@ -20,8 +20,8 @@ There is no Helm chart for `salt-minion-vcf`. To test the VCF image, install the
 - Docker, if you build images yourself (see [`building.md`](building.md)).
 - Images the nodes can pull. Chart defaults: master `salt-master:3008.5`
   (unqualified, so build and import it, or override it), minion
-  `ghcr.io/saltstack/salt-kubernetes/salt-minion:0.1.0`, operator
-  `ghcr.io/saltstack/salt-kubernetes/salt-key-operator:0.1.0`. Override them with
+  `ghcr.io/saltstack/salt-minion:0.1.0`, operator
+  `ghcr.io/saltstack/salt-key-operator:0.1.0`. Override them with
   `agent.image.repository`/`agent.image.tag` (master, minion) and
   `salt-key-operator.image.repository`/`salt-key-operator.image.tag` (the operator,
   set on the master release). A private registry needs

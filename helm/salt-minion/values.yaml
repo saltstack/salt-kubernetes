@@ -34,9 +34,9 @@ agent:
     # is an image release number, not a Salt version. A different image has
     # to provide the same entrypoint contract (see ../../src/minion/README.md),
     # including the POD_NAME fallback for the minion ID.
-    repository: ghcr.io/saltstack/salt-kubernetes/salt-minion
+    repository: ghcr.io/saltstack/salt-minion
     # To use the VCF extensions, set repository to the VCF image (e.g., salt-minion-vcf) and an appropriate tag
-    # repository: ghcr.io/saltstack/salt-kubernetes/salt-minion-vcf
+    # repository: ghcr.io/saltstack/salt-minion-vcf
     tag: "0.1.0"
     pullPolicy: IfNotPresent
 
@@ -98,14 +98,9 @@ agent:
     # <idPrefix>-0, <idPrefix>-1, ... and each pod's minion ID is its pod
     # name, e.g. idPrefix: external-minion -> external-minion-0, -1, ...
     idPrefix: ""
-    # masterId and grains are currently only written to the
-    # <release>-minion-config ConfigMap, which no pod mounts, so they do not
-    # affect the minion.
-    masterId: ""
     # Base64-encoded master public key; passed as SALT_MASTER_PUBKEY_B64 so the
     # minion trusts the master directly on first connect.
     masterPubKeyB64: ""
-    grains: {}
     # Inline keypair (base64-encoded PEM), set together. One replica only: the
     # chart creates a Secret from them (named keySecretName, or <release>-keys).
     # The chart rejects them with replicas > 1.
@@ -169,6 +164,18 @@ keygen:
     repository: bitnami/kubectl
     tag: latest
     pullPolicy: Always
+  # Restricted by default; the Job only needs to create or patch one Secret.
+  # runAsNonRoot needs an image whose default user is not root (bitnami/kubectl
+  # is not).
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
 
 serviceAccount:
   name: salt-minion

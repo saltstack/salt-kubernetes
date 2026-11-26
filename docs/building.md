@@ -22,8 +22,8 @@ docker build -t salt-key-operator:0.1.0 src/salt-key-operator
 ```
 
 Image names and tags are your choice. The chart defaults are
-`salt-master:3008.5` (master), `ghcr.io/saltstack/salt-kubernetes/salt-minion:0.1.0`
-(minion) and `ghcr.io/saltstack/salt-kubernetes/salt-key-operator:0.1.0` (operator), so
+`salt-master:3008.5` (master), `ghcr.io/saltstack/salt-minion:0.1.0`
+(minion) and `ghcr.io/saltstack/salt-key-operator:0.1.0` (operator), so
 override the image values when you use your own build (see below).
 
 ### Build arguments
@@ -36,7 +36,6 @@ override the image values when you use your own build (see below).
 | `EXTRA_SALT_EXTENSIONS` | both minions | empty | Extra pip requirements, space separated, installed after `salt-extensions.txt`. |
 | `PIP_INDEX_URL`, `PIP_TRUSTED_HOST`, `PIP_ONLY_BINARY` | both minions | empty | Install the Salt extensions through a PyPI mirror. |
 | `APT_MIRROR` | both minions | empty | Alternative Ubuntu apt mirror. |
-| `SALT_GPG_KEY_URL`, `SALT_APT_REPO_URL` | both minions | public Salt package repository | Override for restricted networks. |
 
 Both minion Dockerfiles also have `SALT_HOME` and `SALT_SHELL`. Read the
 Dockerfiles for the authoritative list. The master Dockerfile only takes

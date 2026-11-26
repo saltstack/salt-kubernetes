@@ -29,6 +29,10 @@ spec:
         app.kubernetes.io/name: salt-master
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
+      {{- with .Values.agent.image.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.agent.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

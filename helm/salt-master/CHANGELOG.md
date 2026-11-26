@@ -52,6 +52,12 @@ of the image version it happens to default to — check here, not the tag number
   second restart and a 2-replica cluster cannot recover from any single failure.
   `cluster_auto_replace_voters` is left off because it was seen to demote a healthy voter.
   Treat pod restarts in cluster mode as unsupported until the node identity can be made stable.
+- New `agent.image.imagePullSecrets` for pulling the master image from a private registry, and a
+  `keygen` block for the one-time master-key Job: `keygen.image.repository`/`tag`/`pullPolicy`/
+  `imagePullSecrets` (defaults unchanged, `bitnami/kubectl:latest`) and restricted
+  `keygen.podSecurityContext`/`keygen.containerSecurityContext` (non-root, `RuntimeDefault` seccomp,
+  no privilege escalation, all capabilities dropped). The Job image used to be hardcoded and the
+  Job had no security context. Checked on a real cluster: the Job completes and creates the Secret.
 - Requires master image `salt-master-image/v1.1.0` or later (the cluster configuration is rendered
   by the image's `entrypoint.sh`). `Chart.yaml` `appVersion` is not updated to track the image.
 

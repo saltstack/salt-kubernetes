@@ -6,7 +6,7 @@ rbac:
 agent:
   image:
     # Built from src/master/Dockerfile. Also published to
-    # ghcr.io/saltstack/salt-kubernetes/salt-master (see docs/releasing.md), but
+    # ghcr.io/saltstack/salt-master (see docs/releasing.md), but
     # this default is unqualified so a locally built image can be used as is:
     # load it into each node's container runtime, or set repository to the
     # GHCR path (or your own registry) to pull instead. The tag is the Salt
@@ -14,6 +14,10 @@ agent:
     repository: salt-master
     tag: "3008.5"
     pullPolicy: IfNotPresent
+    # Secrets for pulling the master image from a private registry, as a list
+    # of {name: <secret>}. Used by the StatefulSet (and so by every init
+    # container in it).
+    imagePullSecrets: []
 
   # Number of master pods (StatefulSet replicas; pods are salt-master-0..N-1).
   #
@@ -282,4 +286,25 @@ service:
     gatewayNamespace: ""
     publishSectionName: salt-publish
     retSectionName: salt-ret
+
+# The one-time Job that generates the master keypair Secret (classic mode,
+# when agent.masterKeySecretName is empty and the Secret does not exist).
+# The image needs kubectl and openssl.
+keygen:
+  image:
+    repository: bitnami/kubectl
+    tag: latest
+    pullPolicy: Always
+    imagePullSecrets: []
+  # Restricted by default; the Job only needs to create one Secret. runAsNonRoot
+  # needs an image whose default user is not root (bitnami/kubectl is not).
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
 # end of values

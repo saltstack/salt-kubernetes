@@ -87,7 +87,6 @@ Both Dockerfiles take the same arguments:
 | `PIP_TRUSTED_HOST` | empty | Passed to pip as `--trusted-host` |
 | `PIP_ONLY_BINARY` | empty | Passed to pip as `--only-binary` |
 | `APT_MIRROR` | empty | Replaces the `URIs:` of the Ubuntu apt sources |
-| `SALT_GPG_KEY_URL`, `SALT_APT_REPO_URL` | Broadcom Salt package repository | Declared in the Dockerfiles but not used by the current build steps |
 
 Example:
 

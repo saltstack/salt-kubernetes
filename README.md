@@ -91,7 +91,7 @@ docker build -t salt-minion:0.1.0 src/minion/kubernetes
 docker build -t salt-key-operator:0.1.0 src/salt-key-operator
 
 # Master (also installs the salt-key-operator subchart; the operator image
-# defaults to ghcr.io/saltstack/salt-kubernetes/salt-key-operator:0.1.0, override
+# defaults to ghcr.io/saltstack/salt-key-operator:0.1.0, override
 # with --set salt-key-operator.image.repository=... if you built your own)
 helm dependency update helm/salt-master
 helm install salt-master helm/salt-master \
@@ -105,7 +105,7 @@ helm install salt-minion helm/salt-minion \
 ```
 
 The minion chart's default image is
-`ghcr.io/saltstack/salt-kubernetes/salt-minion:0.1.0`; set
+`ghcr.io/saltstack/salt-minion:0.1.0`; set
 `agent.image.repository`/`agent.image.tag` to use the image you built. The
 master chart's default is the unqualified `salt-master:3008.5`.
 

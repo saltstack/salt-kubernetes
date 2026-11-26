@@ -83,7 +83,7 @@ Key values (full list in [`helm/salt-minion/values.yaml`](../helm/salt-minion/va
 
 | Value | Purpose |
 | --- | --- |
-| `agent.image.repository` / `agent.image.tag` | The minion image from step 1 (default `ghcr.io/saltstack/salt-kubernetes/salt-minion:0.1.0`). |
+| `agent.image.repository` / `agent.image.tag` | The minion image from step 1 (default `ghcr.io/saltstack/salt-minion:0.1.0`). |
 | `agent.saltMasterHost` | Master address: `salt-master.salt-master.svc.cluster.local` from inside the cluster, or a node IP with `NodePort`. |
 | `agent.saltMasterPort`, `agent.saltPublishPort` | Default 4506 and 4505. With a `NodePort` master set both to the NodePort values (30506 and 30505 by default); they must change together. |
 | One of `agent.minion.keySecretName`, `agent.minion.privateKeyB64` with `publicKeyB64`, `agent.minion.allowSelfGeneratedKey` | Required key source. The minion's keypair is kept in a Secret, so it survives pod restarts. |

@@ -19,11 +19,33 @@ MINION_RELEASE="salt-minion"
 MINION_ID="integration-test-minion"
 MINION_SECRET="integration-test-minion-keys"
 
-BUILD_CA="/private/tmp/cloud-services-root-ca.crt"
 KEY_DIRECTORY="/private/tmp/salt-minion-integration-keys"
 
-PIP_INDEX_URL="https://packages.vcfd.broadcom.net/artifactory/api/pypi/pypi-virtual/simple"
-PACKAGES_IP="10.191.86.43"
+# Optional settings for building behind a proxy or private mirror. All empty by
+# default; set them in the environment when you need them:
+#   BUILD_CA           PEM file with an extra CA to trust while building images
+#   PIP_INDEX_URL      PyPI mirror used to install the Salt extensions
+#   PACKAGES_ADD_HOST  host:ip passed to `docker build --add-host`
+#   PLATFORM           image platform (default linux/arm64, for Apple silicon)
+#   KUBE_CONTEXT       kubectl context to use (default rancher-desktop)
+BUILD_CA="${BUILD_CA:-}"
+PIP_INDEX_URL="${PIP_INDEX_URL:-}"
+PACKAGES_ADD_HOST="${PACKAGES_ADD_HOST:-}"
+PLATFORM="${PLATFORM:-linux/arm64}"
+KUBE_CONTEXT="${KUBE_CONTEXT:-rancher-desktop}"
+
+# Extra `docker build` arguments assembled from the settings above.
+build_ca_args=()
+if [ -n "${BUILD_CA}" ]; then
+  build_ca_args=(--secret "id=build_ca,src=${BUILD_CA}")
+fi
+minion_build_args=()
+if [ -n "${PACKAGES_ADD_HOST}" ]; then
+  minion_build_args+=(--add-host "${PACKAGES_ADD_HOST}")
+fi
+if [ -n "${PIP_INDEX_URL}" ]; then
+  minion_build_args+=(--build-arg "PIP_INDEX_URL=${PIP_INDEX_URL}")
+fi
 
 cd "${REPO_DIR}"
 
@@ -31,7 +53,7 @@ echo "===================================================="
 echo "1. Select Rancher Desktop"
 echo "===================================================="
 
-kubectl config use-context rancher-desktop
+kubectl config use-context "${KUBE_CONTEXT}"
 docker context use rancher-desktop
 
 kubectl get nodes
@@ -108,33 +130,28 @@ helm lint ./helm/salt-minion --set agent.minion.allowSelfGeneratedKey=true
 git diff --check
 
 echo "===================================================="
-echo "7. Export the corporate CA certificate"
+echo "7. Check the optional build CA certificate"
 echo "===================================================="
 
-security find-certificate \
-  -a \
-  -c "Cloud Services Root CA" \
-  -p \
-  "${HOME}/Library/Keychains/login.keychain-db" \
-  /Library/Keychains/System.keychain \
-  /System/Library/Keychains/SystemRootCertificates.keychain \
-  > "${BUILD_CA}"
+if [ -n "${BUILD_CA}" ]; then
+  test -s "${BUILD_CA}"
 
-test -s "${BUILD_CA}"
-
-openssl x509 \
-  -in "${BUILD_CA}" \
-  -noout \
-  -subject \
-  -issuer \
-  -dates
+  openssl x509 \
+    -in "${BUILD_CA}" \
+    -noout \
+    -subject \
+    -issuer \
+    -dates
+else
+  echo "BUILD_CA not set; building without an extra CA certificate"
+fi
 
 echo "===================================================="
 echo "8. Build Salt Key Operator"
 echo "===================================================="
 
 docker build \
-  --platform linux/arm64 \
+  --platform "${PLATFORM}" \
   --tag salt-key-operator:local \
   ./src/salt-key-operator
 
@@ -143,8 +160,8 @@ echo "9. Build Salt Master"
 echo "===================================================="
 
 docker build \
-  --platform linux/arm64 \
-  --secret "id=build_ca,src=${BUILD_CA}" \
+  --platform "${PLATFORM}" \
+  ${build_ca_args[@]+"${build_ca_args[@]}"} \
   --tag salt-master:local \
   ./src/master
 
@@ -153,10 +170,9 @@ echo "10. Build Salt Minion"
 echo "===================================================="
 
 docker build \
-  --platform linux/arm64 \
-  --add-host "packages.vcfd.broadcom.net:${PACKAGES_IP}" \
-  --secret "id=build_ca,src=${BUILD_CA}" \
-  --build-arg "PIP_INDEX_URL=${PIP_INDEX_URL}" \
+  --platform "${PLATFORM}" \
+  ${build_ca_args[@]+"${build_ca_args[@]}"} \
+  ${minion_build_args[@]+"${minion_build_args[@]}"} \
   --tag salt-minion:local \
   ./src/minion/kubernetes
 
@@ -174,12 +190,12 @@ docker image inspect salt-minion:local \
   --format 'Image={{.RepoTags}} Architecture={{.Architecture}} OS={{.Os}}'
 
 docker run --rm \
-  --platform linux/arm64 \
+  --platform "${PLATFORM}" \
   salt-master:local \
   salt-master --version
 
 docker run --rm \
-  --platform linux/arm64 \
+  --platform "${PLATFORM}" \
   --entrypoint /bin/sh \
   salt-minion:local \
   -c '
