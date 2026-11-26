@@ -58,6 +58,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if and $c.enabled (lt (int .Values.agent.replicas) 2) -}}
 {{- fail "agent.cluster.enabled requires agent.replicas >= 2: Salt refuses to start a cluster member that has no peers." -}}
 {{- end -}}
+{{- if and $c.hostNetwork (not $c.enabled) -}}
+{{- fail "agent.cluster.hostNetwork requires agent.cluster.enabled." -}}
+{{- end -}}
 {{- if and $c.enabled (eq $c.storageMode "shared") (not $c.sharedStorage.existingClaim) -}}
 {{- fail "agent.cluster.sharedStorage.existingClaim (a ReadWriteMany PVC) is required when agent.cluster.storageMode=shared." -}}
 {{- end -}}

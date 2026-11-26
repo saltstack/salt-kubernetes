@@ -22,8 +22,12 @@ assuming.
   none resolve. `SALT_CLUSTER_NODE_ADDRESS` is written as `interface:` and, unless
   `SALT_MASTER_ID` is set, also as the master `id:` (Salt uses `interface` as the consensus node
   identity).
+- The entrypoint identifies itself by `POD_NAME` (falling back to the hostname) and also drops any
+  peer that resolves to its own `SALT_CLUSTER_NODE_ADDRESS`, so it never lists itself as a peer.
+  This matters with `hostNetwork`, where the container's hostname is the node's, not the pod's.
 - Known limitation: with the pod IP as cluster identity, a restarted master cannot rejoin its
-  cluster (see the chart CHANGELOG). Classic (non-cluster) use is unaffected.
+  cluster; the chart's `agent.cluster.hostNetwork` makes the identity a stable node IP (see the chart
+  CHANGELOG). Classic (non-cluster) use is unaffected.
 - Behaviour without `SALT_CLUSTER_ID` is unchanged (user 10001, health check on ports
   4505/4506).
 

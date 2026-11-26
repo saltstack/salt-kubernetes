@@ -48,9 +48,10 @@ and point `agent.image.repository` at the VCF image.
 - **Cluster** (`true`): a Salt master cluster (Salt 3007+, isolated storage
   needs 3008+). Needs `agent.replicas >= 2` (use 3 or more). Each master has
   its own keypair, minions connect to the flat `salt-master` Service, and any
-  replica can serve any minion. Opt-in. **Known limitation:** a restarted or
-  rescheduled master pod cannot rejoin the cluster, so treat pod restarts as
-  unsupported for now (see the master chart README).
+  replica can serve any minion. Opt-in. **Known limitation:** a master's identity
+  is its pod IP, so a restarted pod cannot rejoin unless you set
+  `agent.cluster.hostNetwork` (one master per labelled node; see the master chart
+  README).
 
 The master is a StatefulSet. A release installed from an older chart version
 that used a Deployment cannot be upgraded in place: reinstall.

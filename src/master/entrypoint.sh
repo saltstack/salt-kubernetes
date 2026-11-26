@@ -47,6 +47,9 @@ fi
 # https://docs.saltproject.io/en/3008/topics/tutorials/master-cluster.html
 #
 #   SALT_CLUSTER_ID                  cluster_id
+#   POD_NAME                         this pod's name (used to drop itself from the
+#                                    peer list; the hostname is the node's under
+#                                    hostNetwork)
 #   SALT_CLUSTER_NODE_ADDRESS        this master's own IP, written as `interface:`.
 #                                    Salt uses `interface` as the node identity
 #                                    in the consensus layer and matches it
@@ -68,7 +71,9 @@ fi
 if [ -n "${SALT_CLUSTER_ID:-}" ]; then
     CLUSTER_CONF="$CONF_DIR/98-cluster.conf"
     PEER_IPS=""
-    SELF="$(hostname -s 2>/dev/null || hostname)"
+    # With hostNetwork the container's hostname is the NODE's, not the pod's,
+    # so identify this pod by POD_NAME when it is set.
+    SELF="${POD_NAME:-$(hostname -s 2>/dev/null || hostname)}"
 
     IFS=',' read -r -a PEER_HOSTS <<< "${SALT_CLUSTER_PEERS:-}"
 
@@ -88,6 +93,8 @@ if [ -n "${SALT_CLUSTER_ID:-}" ]; then
 
             # getent exits 2 for an unknown host; don't let pipefail/-e kill us.
             ip="$(getent hosts "$peer" | awk '{print $1; exit}' || true)"
+            # Never list ourselves as a peer, whatever the name resolves to.
+            [ "$ip" != "${SALT_CLUSTER_NODE_ADDRESS:-}" ] || continue
             if [ -n "$ip" ]; then
                 PEER_IPS="$PEER_IPS $ip"
             else

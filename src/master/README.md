@@ -212,6 +212,7 @@ setting `SALT_CLUSTER_ID`. The entrypoint then writes `/etc/salt/master.d/98-clu
 | `SALT_CLUSTER_ID` | Sets `cluster_id` and turns cluster mode on. Unset = classic master. |
 | `SALT_CLUSTER_PEERS` | Comma-separated peer host names. The entry whose short name equals this host's name is dropped, and each remaining one is resolved to an IP for `cluster_peers`. At least one peer must resolve or the container exits with an error. |
 | `SALT_CLUSTER_PEER_WAIT_SECONDS` | How long to wait for all peer names to resolve before continuing with those that did. Default `120`. |
+| `POD_NAME` | This pod's name, used to drop the master's own entry from the peer list (default: the short hostname, which is the node's name under `hostNetwork`). The chart sets it from the downward API. |
 | `SALT_CLUSTER_NODE_ADDRESS` | This master's own peer-reachable IP. Written as `interface:`, and as `id:` unless `SALT_MASTER_ID` is set. Salt uses `interface` as the node identity in cluster consensus, so it must be a real IP, not `0.0.0.0`. |
 | `SALT_CLUSTER_SECRET` | Sets `cluster_secret`, which authenticates masters joining the cluster. |
 | `SALT_CLUSTER_PKI_DIR` | Sets `cluster_pki_dir`. Default `/etc/salt/pki/cluster`. |
@@ -224,7 +225,9 @@ setting `SALT_CLUSTER_ID`. The entrypoint then writes `/etc/salt/master.d/98-clu
 Known limitation: Salt 3008.5 identifies a cluster member by its `interface`, so
 `SALT_CLUSTER_NODE_ADDRESS` is the member's identity. If a member restarts with a different IP
 (as a Kubernetes pod does), it joins as a new member and its old identity remains a dead voter, so
-restarting members of a running cluster is not supported. Cluster mode needs at least two members;
+restarting members of a running cluster only works when each member keeps its IP: for example
+when it runs on the host network and always returns to the same node (the chart's
+`agent.cluster.hostNetwork`). Cluster mode needs at least two members;
 use three or more. Without `SALT_CLUSTER_ID` the image behaves as a classic single master.
 
 Additional configuration, pillar and state trees can be mounted as read-only volumes:

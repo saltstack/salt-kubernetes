@@ -281,6 +281,37 @@ cluster identity and changes on restart; a restarted master cannot rejoin and
 quorum is lost after the second restart. See "Master cluster" in the
 [master chart README](../helm/salt-master/README.md).
 
+### Scenario 6b: restarts with `hostNetwork`
+
+To test restarts, run the masters on the host network, one per labelled node:
+
+```bash
+kubectl label node <node-1> <node-2> <node-3> salt-masters=true   # exactly 3 nodes
+helm upgrade --install salt-master helm/salt-master \
+  --namespace salt-master \
+  --set agent.cluster.enabled=true \
+  --set agent.cluster.hostNetwork=true \
+  --set agent.replicas=3 \
+  --set-string 'agent.nodeSelector.salt-masters=true' \
+  --wait --timeout 10m
+```
+
+The ports `4505`, `4506` and `4520` must be free on those nodes. Then delete one
+pod at a time (including the leader), wait for it to be ready, and run
+`salt-run cluster.members` on another master:
+
+```bash
+kubectl -n salt-master delete pod salt-master-0
+kubectl -n salt-master exec salt-master-1 -c salt-master -- salt-run cluster.members
+```
+
+Expected: the pod returns on the same node with the same IP, `voter_count` stays
+`3`, `learner_count` stays `0`, and `unhealthy_voters` is empty. This was run
+with 3 masters, restarting pods four times, the leader three times among them.
+If a pod does not become ready on the very first start (log line
+`Failed to decrypt join-notify`), delete that pod once. Remove the labels when
+done (`kubectl label node <node> salt-masters-`).
+
 ## Scenario 7: VCF minion image
 
 The VCF image (`src/minion/vcf`, `salt-minion-vcf`) is used through the same minion

@@ -145,6 +145,7 @@ The following table lists the most commonly overridden values. See
 | `agent.cluster.storageMode` | `isolated` (per-pod PVCs, Salt 3008+) or `shared` (one existing RWX claim). | `isolated` |
 | `agent.cluster.persistence.storageClassName` / `.accessMode` / `.size` | Per-pod `state` PVC. Empty class = cluster default. | `""` / `ReadWriteOnce` / `5Gi` |
 | `agent.cluster.sharedStorage.existingClaim` | Existing ReadWriteMany PVC. **Required** when `storageMode=shared`. | `""` |
+| `agent.cluster.hostNetwork` | Run the masters on the host network so each master's identity is its node's IP, which survives restarts. One master per node; see "Known limitation: pod restarts". | `false` |
 | `agent.cluster.keysCacheDriver` | `keys.cache_driver`. Empty = Salt's default (`localfs_key`). | `""` |
 | `agent.cluster.autoReplaceVoters` | `cluster_auto_replace_voters`. Left off on purpose, see the limitation. | `false` |
 | `agent.cluster.minVoters` | `cluster_min_voters`. Empty = replicas - 1 (at least 1). Only matters with `autoReplaceVoters`. | `""` |
@@ -160,7 +161,7 @@ The following table lists the most commonly overridden values. See
 | What minions see | one master | independent masters, each is a separate connection | one cluster identity |
 | Minion `master:` | `salt-master` Service | every pod's headless DNS name, as a list | the flat `salt-master` Service |
 | Accepted keys | in the pod (lost on pod replacement) unless `trustedMinions` is on | per pod, so use `trustedMinions` | `cluster_pki_dir` (`/etc/salt/pki/cluster`), shared between masters |
-| Pod restarts | fine | fine | **not supported**, see below |
+| Pod restarts | fine | fine | **only with `agent.cluster.hostNetwork`**, see below |
 
 Use classic mode unless you specifically need minions to see one identity with
 jobs routed between masters. Classic mode with one replica is the simplest
@@ -225,9 +226,9 @@ kubectl -n salt-master exec salt-master-0 -c salt-master -- salt-run cluster.mem
 
 ### Known limitation: pod restarts
 
-A master's cluster identity is its `interface`, which here is the pod IP, and
-Salt 3008.5 has no setting that separates identity from bind address. A pod IP
-changes whenever the pod is restarted or rescheduled. What that means in
+A master's cluster identity is its `interface`, which by default is the pod IP,
+and Salt 3008.5 has no setting that separates identity from bind address. A pod
+IP changes whenever the pod is restarted or rescheduled. What that means in
 practice:
 
 - A restarted or rescheduled master joins as a **new** learner and cannot
@@ -239,12 +240,36 @@ practice:
   a healthy voter instead of the dead one, so the chart leaves it off and you
   should not rely on it.
 
-Until the identity can be made stable (for example `hostNetwork` pinned one pod
-per node, or fixed pod IPs), treat pod restarts, node drains and upgrades that
-roll the pods in cluster mode as unsupported, and use cluster mode only where
-you can accept rebuilding the cluster (reinstall and, if needed, delete the
-`state` PVCs) after a restart. Classic mode is not affected. Cluster mode is
-opt-in and is not the default.
+**Workaround: `agent.cluster.hostNetwork=true`.** The masters then run on the
+host network, so a master's identity is its **node's** IP, and a restarted pod
+that comes back on the same node keeps its identity. The chart adds a required
+pod anti-affinity (one master per node, because each binds the node's ports
+`4505`, `4506` and `agent.cluster.poolPort`). A replacement pod only keeps its
+identity if it lands on the same node, so:
+
+1. Label exactly `agent.replicas` nodes, for example
+   `kubectl label node <node> salt-masters=true`.
+2. Select them with `--set-string 'agent.nodeSelector.salt-masters=true'`.
+
+With exactly as many labelled nodes as masters, the only node a replacement can
+go to is the one that was freed. More labelled nodes than masters lets a pod
+move to a different node, which is a new identity again. Other requirements: the
+three ports must be free on those nodes, and the namespace must allow
+`hostNetwork` pods (the `baseline` and `restricted` Pod Security levels do not).
+
+```bash
+helm install salt-master . \
+  --set agent.replicas=3 \
+  --set agent.cluster.enabled=true \
+  --set agent.cluster.hostNetwork=true \
+  --set-string 'agent.nodeSelector.salt-masters=true'
+```
+
+Without `hostNetwork`, treat pod restarts, node drains and upgrades that roll
+the pods in cluster mode as unsupported, and use cluster mode only where you can
+accept rebuilding the cluster (reinstall and, if needed, delete the `state`
+PVCs) after a restart. Classic mode is not affected. Cluster mode is opt-in and
+is not the default.
 
 ### One release per namespace
 
@@ -254,9 +279,23 @@ names built from the release name. Install at most one release of this chart per
 
 ### What was tested
 
-Tested on a real cluster: cluster mode with 3 replicas and isolated storage
-(including the pod-restart behaviour described above). **Not tested:** shared storage mode, minions connecting through the cluster,
-and node failure.
+Tested on a real cluster, cluster mode with 3 replicas and isolated storage:
+
+- **Default (pod IP identity):** the cluster forms. A restarted pod comes back
+  with a new IP and cannot rejoin, as described above.
+- **With `agent.cluster.hostNetwork=true`** (3 masters on 3 labelled nodes): the
+  cluster forms with the three node IPs as voters, no master lists itself as a
+  peer, and after four pod restarts, the leader three times among them, the
+  membership stayed at 3 voters with no learners and nothing unhealthy. Leadership
+  moved to another master each time the leader was restarted, and every
+  restarted pod came back on its own node with the same IP and became ready. On
+  the first start one master came up as a joiner and did not become ready (log:
+  `Failed to decrypt join-notify`); deleting that pod fixed it. This was seen once.
+- **Classic mode** with 1 replica and a chart-generated key.
+
+**Not tested:** shared storage mode, `hostNetwork` together with `trustedMinions`,
+minions connecting through the cluster, a node failing or being drained so that a
+master has to move to another node, and Pod Security admission on the namespace.
 
 ## Accessing the masters
 

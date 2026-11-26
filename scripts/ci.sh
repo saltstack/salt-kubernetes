@@ -123,6 +123,12 @@ helm_template "salt-master-multi" helm/salt-master \
 helm_template "salt-master-cluster" helm/salt-master \
     --set agent.cluster.enabled=true \
     --set agent.replicas=3
+helm_template "salt-master-cluster-hostnetwork" helm/salt-master \
+    --set agent.cluster.enabled=true \
+    --set agent.cluster.hostNetwork=true \
+    --set agent.replicas=3
+helm_template_fails "salt-master hostNetwork without cluster mode" helm/salt-master \
+    --set agent.cluster.hostNetwork=true
 helm_template_fails "salt-master replicas>1 without a shared key" helm/salt-master \
     --set agent.replicas=2
 helm_template_fails "salt-master cluster with one replica" helm/salt-master \

@@ -47,11 +47,18 @@ of the image version it happens to default to — check here, not the tag number
   is used).
 - Tested: 3 replicas with isolated storage. Not tested: shared storage, minions connecting
   through the cluster, node failure.
-- **Known limitation:** the pod IP is the cluster identity, so a restarted or rescheduled master
-  joins as a new learner while its old identity stays a dead voter; quorum is lost after the
-  second restart and a 2-replica cluster cannot recover from any single failure.
+- **Known limitation:** by default the pod IP is the cluster identity, so a restarted or
+  rescheduled master joins as a new learner while its old identity stays a dead voter; quorum is
+  lost after the second restart and a 2-replica cluster cannot recover from any single failure.
   `cluster_auto_replace_voters` is left off because it was seen to demote a healthy voter.
-  Treat pod restarts in cluster mode as unsupported until the node identity can be made stable.
+- New opt-in `agent.cluster.hostNetwork`: the masters run on the host network, so a master's
+  identity is its node's IP and survives a pod restart. It adds `hostNetwork: true`,
+  `dnsPolicy: ClusterFirstWithHostNet` and a required pod anti-affinity (one master per node), and
+  needs exactly `agent.replicas` labelled nodes selected with `agent.nodeSelector` so a replacement
+  pod can only land on its own node. The masters also get `POD_NAME`, because under hostNetwork the
+  container's hostname is the node's. Tested with 3 masters on 3 nodes: after four restarts, the
+  leader three times among them, the cluster stayed at 3 voters with no learners. Not tested: a node
+  failing or draining, `trustedMinions` together with `hostNetwork`, minions through the cluster.
 - New `agent.image.imagePullSecrets` for pulling the master image from a private registry, and a
   `keygen` block for the one-time master-key Job: `keygen.image.repository`/`tag`/`pullPolicy`/
   `imagePullSecrets` (defaults unchanged, `bitnami/kubectl:latest`) and restricted

@@ -29,6 +29,19 @@ spec:
         app.kubernetes.io/name: salt-master
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
+      {{- if and $cluster.enabled $cluster.hostNetwork }}
+      # The master's cluster identity is its node's IP (status.podIP of a
+      # hostNetwork pod). One master per node: they bind the node's ports.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: salt-master
+              topologyKey: kubernetes.io/hostname
+      {{- end }}
       {{- with .Values.agent.image.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -140,6 +153,10 @@ spec:
             # which must be its own peer-reachable IP.
             - name: SALT_CLUSTER_NODE_ADDRESS
               value: $(POD_IP)
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             - name: SALT_CLUSTER_ID
               value: {{ include "salt-master.clusterId" . | quote }}
             - name: SALT_CLUSTER_PEERS

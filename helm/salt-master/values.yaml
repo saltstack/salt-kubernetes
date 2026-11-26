@@ -89,15 +89,25 @@ agent:
     # so the restarted pod joins as a NEW learner while its old identity stays
     # a dead voter. Salt's own recovery, cluster_auto_replace_voters, is OFF by
     # default and was observed to demote a healthy voter instead of the dead
-    # one (breaking quorum), so the chart leaves it off. Until this is solved
-    # (stable node IPs, e.g. hostNetwork pinned per node), treat pod restarts
-    # as unsupported. Replacing a voter also needs a majority of the current
-    # voters, so use at least 3 replicas.
+    # one (breaking quorum), so the chart leaves it off. Use hostNetwork
+    # (below) so the identity is a stable node IP; without it, treat pod
+    # restarts as unsupported. Replacing a voter also needs a majority of the
+    # current voters, so use at least 3 replicas.
     autoReplaceVoters: false
     # cluster_min_voters: floor below which Salt will not demote a voter.
     # Empty = replicas - 1 (at least 1), i.e. one dead voter can always be
     # replaced (only relevant when autoReplaceVoters is true).
     minVoters: ""
+    # Run the masters on the host network so each master's cluster identity is
+    # its NODE's IP, which survives a pod restart (a pod IP does not; see the
+    # known limitation). Needs agent.cluster.enabled. Each master then binds the
+    # node's ports 4505, 4506 and poolPort, so the chart adds a required pod
+    # anti-affinity (one master per node). A replacement pod keeps the same
+    # identity only if it lands on the SAME node, so label exactly `replicas`
+    # nodes and select them with agent.nodeSelector: then the only node a
+    # replacement can go to is the one that was freed. hostNetwork pods are
+    # blocked by the "baseline" and "restricted" Pod Security levels.
+    hostNetwork: false
     # keys.cache_driver for the cluster key store. Empty = Salt's default
     # (localfs_key). Salt recommends mmap_key for isolated mode, but see the
     # chart CHANGELOG: it failed to read its own keys back on Longhorn PVCs.
