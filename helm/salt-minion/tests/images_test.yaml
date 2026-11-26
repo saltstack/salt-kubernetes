@@ -10,11 +10,11 @@ tests:
       - template: templates/statefulset.yaml
         equal:
           path: spec.template.spec.containers[?(@.name == "salt-minion")].image
-          value: ghcr.io/saltstack/salt-minion:0.1.0
+          value: ghcr.io/saltstack/salt-minion:0.2.0
       - template: templates/statefulset.yaml
         equal:
           path: spec.template.spec.initContainers[?(@.name == "prepare-minion-keys")].image
-          value: ghcr.io/saltstack/salt-minion:0.1.0
+          value: ghcr.io/saltstack/salt-minion:0.2.0
       - template: templates/keygen-job.yaml
         equal:
           path: spec.template.spec.containers[?(@.name == "keygen")].image
@@ -56,11 +56,11 @@ tests:
       - template: templates/statefulset.yaml
         equal:
           path: spec.template.spec.containers[?(@.name == "salt-minion")].image
-          value: mirror.example:5000/team/minion:0.1.0
+          value: mirror.example:5000/team/minion:0.2.0
       - template: templates/statefulset.yaml
         equal:
           path: spec.template.spec.initContainers[?(@.name == "prepare-minion-keys")].image
-          value: mirror.example:5000/team/minion:0.1.0
+          value: mirror.example:5000/team/minion:0.2.0
       - template: templates/keygen-job.yaml
         equal:
           path: spec.template.spec.containers[?(@.name == "keygen")].image
