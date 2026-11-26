@@ -108,7 +108,7 @@ EOF
 fi
 
 # Deliberately does NOT set pillar_roots or touch /srv/pillar: the
-# salt-minion-kubernetes chart's kube_bench.sls ConfigMap is consumed via the
+# salt-minion chart's kube_bench.sls ConfigMap is consumed via the
 # Master's own pillar_roots (see chart README "kube-bench coordination"), not
 # a local pillar tree - unlike salt-minion-vcf, which is meant to run
 # disconnected enough to need one.

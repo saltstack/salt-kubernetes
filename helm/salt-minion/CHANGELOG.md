@@ -2,7 +2,9 @@
 
 Image and chart in this directory publish under separate release tags (see
 [`docs/releasing.md`](../../docs/releasing.md)) but neither tag encodes the Salt/extension
-versions it carries — check here.
+versions it carries — check here. The release tags are `salt-minion-vX.Y.Z` for the image and
+`chart-salt-minion-vX.Y.Z` for the chart; the headings below use the older
+`salt-minion-image/vX.Y.Z` and `salt-minion-chart/vX.Y.Z` naming.
 
 ## Image releases (`salt-minion-image/vX.Y.Z`)
 
@@ -98,7 +100,8 @@ Applies to both `src/minion/kubernetes` and `src/minion/vcf`.
 - The default image repository is now `ghcr.io/saltstack/salt-minion`, where the image workflow
   publishes. The previous default, `ghcr.io/saltstack/salt-kubernetes/salt-minion`, does not
   exist. The `0.1.0` tag at the new path exists only once the Kubernetes minion image has been
-  released (the workflow now triggers on `salt-minion-kubernetes-v*`; see `docs/releasing.md`).
+  released (the workflow's tag pattern now matches `salt-minion-vX.Y.Z` and no longer also matches the
+  `salt-minion-vcf-v*` tags; see `docs/releasing.md`).
 - Removed the unused `scripts/` copies of the entrypoint scripts and `salt-extensions.txt` from the
   chart (the images read the files under `src/minion/`). `Chart.yaml` now describes a StatefulSet.
 

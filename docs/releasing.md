@@ -19,7 +19,7 @@ and add the release heading before tagging; nothing enforces it.
 | Component | Source | Tag to push | Published as |
 | --- | --- | --- | --- |
 | Master | `src/master` | `salt-master-vX.Y.Z` | `ghcr.io/<owner>/salt-master:X.Y.Z` and `:latest` |
-| Minion (Kubernetes) | `src/minion/kubernetes` | `salt-minion-kubernetes-vX.Y.Z` | `ghcr.io/<owner>/salt-minion:X.Y.Z` and `:latest` |
+| Minion (Kubernetes) | `src/minion/kubernetes` | `salt-minion-vX.Y.Z` | `ghcr.io/<owner>/salt-minion:X.Y.Z` and `:latest` |
 | Minion (VCF) | `src/minion/vcf` | `salt-minion-vcf-vX.Y.Z` | `ghcr.io/<owner>/salt-minion-vcf:X.Y.Z` and `:latest` |
 | Key operator | `src/salt-key-operator` | `salt-key-operator-vX.Y.Z` | `ghcr.io/<owner>/salt-key-operator:X.Y.Z` and `:latest` |
 
@@ -87,17 +87,20 @@ anonymous `docker pull` and `helm pull` fail.
 
 ## Tag names and default images
 
-- Each tag prefix is distinct (`salt-minion-kubernetes-v`, `salt-minion-vcf-v`,
-  `salt-master-v`, `salt-key-operator-v`, and the `chart-salt-*-v` chart tags), so
-  one tag starts exactly one workflow. `scripts/release-docker-tags.sh` and
-  `scripts/release-helm-tags.sh` create these same tag names.
+- Image and chart tags use the package name: `salt-minion-vX.Y.Z` for the image and
+  `chart-salt-minion-vX.Y.Z` for the chart (likewise `salt-master-`, `salt-key-operator-`
+  and `salt-minion-vcf-`). The Kubernetes minion workflow matches `salt-minion-v[0-9]*`:
+  a digit has to follow the `v`, so a `salt-minion-vcf-vX.Y.Z` tag starts only the VCF
+  workflow. Each tag therefore starts exactly one workflow.
+  `scripts/release-docker-tags.sh` and `scripts/release-helm-tags.sh` create these same
+  tag names.
 - The default image repositories in the charts point at where the image
   workflows publish: `ghcr.io/saltstack/salt-minion`, `ghcr.io/saltstack/salt-minion-vcf`
   and `ghcr.io/saltstack/salt-key-operator`. A default only works once an image
   with that tag has been released (and its package made public, see above); the
   master chart's default repository is the unqualified `salt-master` on purpose, so a
   locally built image can be used as is.
-- Before the tag fix, the `salt-minion-kubernetes-v0.1.0` tag matched no workflow,
-  so no Kubernetes minion image was published for it. Releasing the minion image
-  needs a new tag (for example `salt-minion-kubernetes-v0.1.2`, see the minion
-  image changelog).
+- The tag `salt-minion-kubernetes-v0.1.0` that already exists on the remote matches no
+  workflow, so no Kubernetes minion image was ever published for it. Release the
+  Kubernetes minion image with a new `salt-minion-vX.Y.Z` tag (for example
+  `salt-minion-v0.1.2`, see the minion image changelog).

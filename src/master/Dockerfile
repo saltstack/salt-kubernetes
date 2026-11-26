@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Master-only counterpart to the salt-minion-vcf/salt-minion-kubernetes
+# Master-only counterpart to the salt-minion and salt-minion-vcf
 # minion images. Deliberately minimal: unlike either minion variant, this
 # image doesn't need any Salt extensions (execution/state modules run on
 # minions, not the master) or kubectl (the master never talks to a cluster
