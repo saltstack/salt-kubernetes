@@ -30,6 +30,9 @@ Applies to both `src/minion/kubernetes` and `src/minion/vcf`.
 - Extensions are unchanged: `saltext.kubernetes==2.1.0`, `saltext.vault==1.8.0` in both
   images, plus `saltext.vcf==1.0.0` and `saltext.bmc==0.0.1` in the VCF image.
 
+- **Behaviour change:** the `managed_by` grain that both entrypoints set is now `salt-minion`
+  (it was `salt-minion-kubernetes`, the old chart name), matching the package name. Update any
+  states or targeting that match `managed_by: salt-minion-kubernetes`.
 - Removed the unused `SALT_GPG_KEY_URL` and `SALT_APT_REPO_URL` build arguments, and corrected
   comments that still named the old chart and file paths.
 

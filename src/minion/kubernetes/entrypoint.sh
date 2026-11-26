@@ -124,7 +124,7 @@ pidfile: /var/cache/salt/minion/minion.pid
 sock_dir: /var/cache/salt/minion/.socks
 
 grains:
-  managed_by: salt-minion-kubernetes
+  managed_by: salt-minion
 EOF
 
 # Optional Vault integration (saltext.vault): configures the 'vault' auth/
