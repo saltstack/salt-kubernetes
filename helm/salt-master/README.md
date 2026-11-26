@@ -378,6 +378,14 @@ Two ways to accept a minion's key, mutually exclusive per release:
   explicitly rejects symlinks in its key store - confirmed by live testing, see
   [`CHANGELOG.md`](CHANGELOG.md).) This is intentional, not a bug. Allow about
   a minute for kubelet's ConfigMap propagation plus the sync interval.
+
+  **Install into the namespace the masters use.** The bundled operator is deployed
+  into the release namespace and, by default, watches only that namespace, but the
+  master's objects (and so the trusted-minions ConfigMap) go into `namespace`. Install
+  with `helm install ... --namespace <namespace> --set namespace=<namespace>` (the
+  default `namespace` is `salt-master`). If they differ, the post-install notes show a
+  warning; fix it by reinstalling with the right `--namespace`, or set
+  `salt-key-operator.watchNamespace=<namespace>`.
 - **Traditional** (`agent.trustedMinions.enabled: false`): `salt-key -a`
   against a pod.
   ```bash

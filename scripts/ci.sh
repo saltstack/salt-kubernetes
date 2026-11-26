@@ -136,6 +136,7 @@ helm_template_fails "salt-master cluster with one replica" helm/salt-master \
 
 # Operator chart template (include CRDs)
 helm_template "salt-key-operator" helm/salt-key-operator --include-crds
+helm_template "salt-key-operator-clusterwide" helm/salt-key-operator --set clusterWide=true
 
 # Minion chart: one minion, one key pair per pod, and several masters
 helm_template "salt-minion-single" helm/salt-minion \

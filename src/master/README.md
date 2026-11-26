@@ -364,7 +364,6 @@ helm template salt-master \
   --set salt-key-operator.image.repository=salt-key-operator \
   --set salt-key-operator.image.tag=local \
   --set salt-key-operator.image.pullPolicy=Never \
-  --set salt-key-operator.watchNamespace=salt-master \
   > /tmp/salt-master-rendered.yaml
 ```
 
@@ -392,7 +391,6 @@ helm upgrade --install salt-master \
   --set salt-key-operator.image.repository=salt-key-operator \
   --set salt-key-operator.image.tag=local \
   --set salt-key-operator.image.pullPolicy=Never \
-  --set salt-key-operator.watchNamespace=salt-master \
   --wait \
   --wait-for-jobs \
   --timeout 5m

@@ -111,10 +111,11 @@ that entirely: creating one `SaltMinionKey` object gets a minion trusted by
 - **RBAC is the single biggest new attack-surface item this component adds
   to the repo** - nothing else here touches ConfigMaps or a custom API
   group (and, per the point above, this design needs no Secret access at
-  all). The chart defaults `watchNamespace: salt-master` - matching
-  `salt-master`'s own default namespace - which scopes RBAC down
+  all). By default the chart watches the namespace the release is
+  installed into (`watchNamespace` empty; install the operator, or the salt-master
+  chart that bundles it, into the salt-master namespace), which scopes RBAC down
   to a namespaced `Role`/`RoleBinding` in just that namespace, not a
-  cluster-wide `ClusterRole`. Set `watchNamespace: ""` only for a genuine
+  cluster-wide `ClusterRole`. Set `clusterWide: true` only for a genuine
   multi-tenant cluster with target master releases spread across multiple
   namespaces - that falls back to `ClusterRole`/`ClusterRoleBinding`, since
   `SaltMinionKey` objects and their target ConfigMaps could then be

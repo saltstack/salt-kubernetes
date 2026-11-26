@@ -37,6 +37,14 @@ List known minion keys:
     -- salt-key -L
 
 {{- if .Values.agent.trustedMinions.enabled }}
+{{- if ne .Release.Namespace .Values.namespace }}
+
+WARNING: this release was installed into namespace "{{ .Release.Namespace }}", but the
+salt-master objects are in "{{ .Values.namespace }}". The bundled salt-key-operator is deployed
+into the release namespace and watches it by default, so it will not see the master's
+trusted-minions ConfigMap. Reinstall with --namespace {{ .Values.namespace }}, or set
+salt-key-operator.watchNamespace={{ .Values.namespace }}.
+{{- end }}
 
 Minion trust is managed declaratively by salt-key-operator.
 

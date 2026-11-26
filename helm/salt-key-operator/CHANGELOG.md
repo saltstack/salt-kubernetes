@@ -7,6 +7,13 @@ version is independent of the image version it happens to default to —
 check here, not the tag number.
 
 ## Unreleased
+- **`watchNamespace` now defaults to the release namespace** (empty), not the fixed `salt-master`,
+  and cluster-wide watching is the explicit `clusterWide: true` (it used to be `watchNamespace: ""`).
+  The Deployment goes into the release namespace but the Role and RoleBinding went into
+  `watchNamespace`, so installing the salt-master chart, which bundles this chart, into any other
+  namespace failed with `namespaces "salt-master" not found` and left a half-installed release.
+  Found by installing the master chart with its defaults on a real cluster. Installing into a
+  namespace named `salt-master` behaves as before.
 - The default image repository is now `ghcr.io/saltstack/salt-key-operator`, where the image
   workflow publishes. The previous default, `ghcr.io/saltstack/salt-kubernetes/salt-key-operator`,
   does not exist.

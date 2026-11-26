@@ -30,8 +30,8 @@ spec:
             {{- if .Values.leaderElection.enabled }}
             - --leader-elect
             {{- end }}
-            {{- if .Values.watchNamespace }}
-            - --namespace={{ .Values.watchNamespace }}
+            {{- with include "salt-key-operator.watchNamespace" . }}
+            - --namespace={{ . }}
             {{- end }}
           ports:
             - name: healthz
