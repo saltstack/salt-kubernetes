@@ -3,13 +3,14 @@
 A small Kubernetes operator (controller-runtime/kubebuilder-style, Go) that
 reconciles a `SaltMinionKey` custom resource - the declarative replacement
 for running `salt-key -a <minion-id>` by hand against a
-`salt-master-kubernetes` pod.
+`salt-master` pod.
 
 ## Why this exists
 
-`salt-master-kubernetes` (see `../salt-master-kubernetes/README.md`) supports
-running multiple master replicas that all share one keypair, using Salt's
-own [multi-master mode](https://docs.saltproject.io/en/3006/topics/tutorials/multimaster.html).
+`salt-master` (see `../../helm/salt-master/README.md`) supports
+running multiple master replicas, either as classic multi-master (all replicas
+share one keypair) or as a Salt master cluster, and runs as a StatefulSet. Classic
+multi-master uses Salt's own [multi-master mode](https://docs.saltproject.io/en/3008/topics/tutorials/multimaster.html).
 That doc explicitly calls out a gap vanilla Salt multi-master doesn't solve:
 
 > Keys accepted, deleted, or rejected on one master will NOT be
@@ -21,19 +22,37 @@ steps that all have to stay in sync by hand. `salt-key-operator` replaces
 that entirely: creating one `SaltMinionKey` object gets a minion trusted by
 **every** replica of the target master release, consistently.
 
+## Relationship to the charts
+
+- The `salt-master` chart declares this chart as a dependency
+  (`helm/salt-master/Chart.yaml`, condition `agent.trustedMinions.enabled`, default
+  `true`). A normal master install therefore already installs the operator into the
+  release namespace; do not install `helm/salt-key-operator` a second time in the
+  same namespace. Override the subchart with the `salt-key-operator.*` prefix, for
+  example `--set salt-key-operator.image.repository=...`. Install the chart on its
+  own only for a master release that is not managed by that chart.
+- With `agent.trustedMinions.enabled=true` the master's sidecar removes any key in
+  Salt's `minions` directory that is not in the ConfigMap, so keys accepted with
+  `salt-key -a` do not persist. Use one mode or the other. In master cluster mode
+  the keys are written into the cluster PKI directory.
+- The `salt-minion` chart runs a StatefulSet in which every pod is its own minion
+  (ID = pod name) with its own keypair. Create one `SaltMinionKey` per pod, using
+  that pod's public key: with `agent.replicas: 1` it is `minion.pub` in Secret
+  `<release>-keys`, with more replicas `<pod-name>.pub` in the same Secret.
+
 ## How it works
 
 1. You create a `SaltMinionKey` with just two fields: the minion ID and its
    public key, inline (PEM, plain text - a minion's public key isn't
    sensitive, so there's no separate Secret to create first). There's also
    no need to say *which* master release to trust it with - the controller
-   finds the one `salt-master-kubernetes` release installed in the
+   finds the one `salt-master` release installed in the
    `SaltMinionKey`'s own namespace automatically (see "Design notes" below
    for what happens if that's ambiguous).
 2. The controller writes `data[<minionId>] = <publicKey>` into that
-   release's trusted-minions ConfigMap (see `salt-master-kubernetes`'s
+   release's trusted-minions ConfigMap (see the `salt-master` chart's
    `agent.trustedMinions.*` values).
-3. `salt-master-kubernetes` runs a `trusted-minions-sync` sidecar in every
+3. `salt-master` runs a `trusted-minions-sync` sidecar in every
    replica that continuously copies that ConfigMap into the directory Salt
    actually reads (`/etc/salt/pki/master/minions`) - **not** a direct
    ConfigMap volume mount. Kubernetes always mounts ConfigMap volumes as
@@ -58,7 +77,7 @@ that entirely: creating one `SaltMinionKey` object gets a minion trusted by
   indirection. And rather than making every `SaltMinionKey` name which
   master ConfigMap to target, the controller discovers the one
   `trustedMinionsLabel`-marked ConfigMap in its own namespace - matching
-  this repo's convention of one `salt-master-kubernetes` release per
+  this repo's convention of one `salt-master` release per
   dedicated namespace (e.g. `salt-master`). Running more than one master
   release in the same namespace isn't supported by this auto-discovery
   (the controller returns an error - `NoMasterConfigMap` if none, an
@@ -66,9 +85,9 @@ that entirely: creating one `SaltMinionKey` object gets a minion trusted by
 - **No exec-into-pod from the operator, no volume shared *across*
   replicas.** The operator itself only ever writes to one ConfigMap - it
   never touches a master pod directly. Making that ConfigMap's content
-  actually usable by Salt is `salt-master-kubernetes`'s own problem, solved
+  actually usable by Salt is `salt-master`'s own problem, solved
   there with a per-pod `trusted-minions-sync` sidecar and a per-pod
-  `emptyDir` (see that chart's `templates/statefulset.yaml`) - not shared
+  `emptyDir` (see `helm/salt-master/templates/statefulset.yaml`) - not shared
   between replicas, just between the two containers of the same pod.
 - **Propagation latency is bounded by kubelet's ConfigMap resync period**
   (on the order of a minute) plus the sync sidecar's own poll interval on
@@ -92,10 +111,11 @@ that entirely: creating one `SaltMinionKey` object gets a minion trusted by
 - **RBAC is the single biggest new attack-surface item this component adds
   to the repo** - nothing else here touches ConfigMaps or a custom API
   group (and, per the point above, this design needs no Secret access at
-  all). The chart defaults `watchNamespace: salt-master` - matching
-  `salt-master-kubernetes`'s own default namespace - which scopes RBAC down
+  all). By default the chart watches the namespace the release is
+  installed into (`watchNamespace` empty; install the operator, or the salt-master
+  chart that bundles it, into the salt-master namespace), which scopes RBAC down
   to a namespaced `Role`/`RoleBinding` in just that namespace, not a
-  cluster-wide `ClusterRole`. Set `watchNamespace: ""` only for a genuine
+  cluster-wide `ClusterRole`. Set `clusterWide: true` only for a genuine
   multi-tenant cluster with target master releases spread across multiple
   namespaces - that falls back to `ClusterRole`/`ClusterRoleBinding`, since
   `SaltMinionKey` objects and their target ConfigMaps could then be
@@ -110,6 +130,8 @@ that entirely: creating one `SaltMinionKey` object gets a minion trusted by
 
 ## Development
 
+Run these from `src/salt-key-operator`:
+
 ```bash
 go build ./...
 go vet ./...
@@ -123,11 +145,11 @@ go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
 controller-gen object:headerFile="" paths="./api/..."
 controller-gen crd paths="./api/..." output:crd:artifacts:config=config/crd/bases
 controller-gen rbac:roleName=salt-key-operator paths="./..." output:rbac:artifacts:config=config/rbac
-cp config/crd/bases/*.yaml helm/salt-key-operator/crds/
+cp config/crd/bases/*.yaml ../../helm/salt-key-operator/crds/
 ```
 
 `config/rbac/role.yaml`'s `rules:` also has to be copied by hand into
-`helm/salt-key-operator/templates/rbac.yaml` (both the `Role` and
+`../../helm/salt-key-operator/templates/rbac.yaml` (both the `Role` and
 `ClusterRole` branches) - see the comment at the top of that template.
 
 Note `api/v1alpha1/saltminionkeystatus_deepcopy.go`: `controller-gen`
@@ -146,7 +168,7 @@ for anything under a chart's `crds/` directory) - to pick up a CRD schema
 change on an existing install, apply it directly:
 
 ```bash
-kubectl apply -f helm/salt-key-operator/crds/
+kubectl apply -f helm/salt-key-operator/crds/   # from the repository root
 ```
 
 ## CRD reference
@@ -158,7 +180,7 @@ metadata:
   name: <minion-id>       # object name - can differ from spec.minionId,
   namespace: <namespace>  # which is unconstrained by RFC 1123 (may be an FQDN, etc.)
                            # - and must be the same namespace as the target
-                           # salt-master-kubernetes release
+                           # salt-master release
 spec:
   minionId: <minion-id>
   publicKey: |

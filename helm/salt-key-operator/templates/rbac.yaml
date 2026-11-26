@@ -8,17 +8,18 @@
 # `helm template`/`helm lint` step will not catch a drifted copy, so treat
 # updating this file as part of any RBAC-marker change, not optional.
 #
-# Namespaced Role/RoleBinding when watchNamespace is set (the default,
-# "salt-master") - the smallest footprint this operator can run with, since
-# it only ever touches objects in that one namespace. Falls back to a
-# cluster-wide ClusterRole/ClusterRoleBinding only when watchNamespace is
-# explicitly cleared for a genuine multi-tenant deployment.
-{{- if .Values.watchNamespace }}
+# Namespaced Role/RoleBinding in the watched namespace (by default the namespace
+# the release is installed into) - the smallest footprint this operator can run
+# with, since it only ever touches objects in that one namespace. Falls back to a
+# cluster-wide ClusterRole/ClusterRoleBinding only when clusterWide is set for a
+# genuine multi-tenant deployment.
+{{- $watch := include "salt-key-operator.watchNamespace" . }}
+{{- if $watch }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: salt-key-operator
-  namespace: {{ .Values.watchNamespace }}
+  namespace: {{ $watch }}
   labels:
     app.kubernetes.io/name: salt-key-operator
     app.kubernetes.io/managed-by: {{ .Release.Service }}
@@ -47,7 +48,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: salt-key-operator
-  namespace: {{ .Values.watchNamespace }}
+  namespace: {{ $watch }}
   labels:
     app.kubernetes.io/name: salt-key-operator
     app.kubernetes.io/managed-by: {{ .Release.Service }}

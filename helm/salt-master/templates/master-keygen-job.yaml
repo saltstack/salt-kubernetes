@@ -1,6 +1,6 @@
 {{- $masterKeySecret := .Values.agent.masterKeySecretName | default (printf "%s-master-keys" .Release.Name) -}}
 {{- $existingMasterKeySecret := lookup "v1" "Secret" .Values.namespace $masterKeySecret -}}
-{{- if not $existingMasterKeySecret }}
+{{- if and (not .Values.agent.cluster.enabled) (not $existingMasterKeySecret) }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -11,13 +11,22 @@ spec:
   template:
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        {{- toYaml .Values.keygen.podSecurityContext | nindent 8 }}
+      {{- with .Values.keygen.image.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       # The normal Salt Master pod does not need an API token, but this
       # one-time key-generation Job needs one to create the Secret.
       automountServiceAccountToken: true
       restartPolicy: OnFailure
       containers:
         - name: master-keygen
-          image: bitnami/kubectl:latest
+          image: {{ printf "%s:%s" .Values.keygen.image.repository (toString .Values.keygen.image.tag) | quote }}
+          imagePullPolicy: {{ .Values.keygen.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.keygen.containerSecurityContext | nindent 12 }}
           command: ["/bin/sh", "-c"]
           args:
             - |

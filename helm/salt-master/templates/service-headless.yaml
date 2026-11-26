@@ -4,9 +4,9 @@
 # This is what lets an in-cluster minion's multi-master `master:` config list
 # address every master replica individually rather than being randomly
 # load-balanced across them by a normal Service - see
-# https://docs.saltproject.io/en/3006/topics/tutorials/multimaster.html and
-# salt-minion-vcf/helm/salt-minion-vcf/templates/service.yaml, which uses the
-# exact same pattern for its own StatefulSet.
+# https://docs.saltproject.io/en/3008/topics/tutorials/multimaster.html.
+# In cluster mode it also carries the cluster-pool port, and the entrypoint
+# resolves these names to the peer pod IPs.
 apiVersion: v1
 kind: Service
 metadata:
@@ -28,3 +28,8 @@ spec:
     - name: ret
       port: 4506
       targetPort: ret
+{{- if .Values.agent.cluster.enabled }}
+    - name: cluster-pool
+      port: {{ .Values.agent.cluster.poolPort }}
+      targetPort: cluster-pool
+{{- end }}

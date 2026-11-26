@@ -1,7 +1,8 @@
 apiVersion: v2
 name: salt-minion
 description: >
-  Installs Salt minion Deployment and supporting configurations.
+  Installs Salt minions as a Kubernetes StatefulSet: each pod is its own
+  minion, with its own ID and keypair.
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

@@ -1,9 +1,10 @@
 image:
-  # Published to ghcr.io/saltstack/salt-kubernetes/salt-key-operator (see
-  # docs/releasing.md). Distroless static image - runs as the built-in
-  # "nonroot" user (uid/gid 65532), no numeric override needed here the way
+  # Build from src/salt-key-operator (docs/building.md). The release workflow
+  # pushes to ghcr.io/<owner>/salt-key-operator (docs/releasing.md); check
+  # the path you actually publish and override repository to match.
+  # Distroless static image - runs as the built-in "nonroot" user (uid/gid 65532), no numeric override needed here the way
   # this repo's other (apt/onedir-based) images require.
-  repository: ghcr.io/saltstack/salt-kubernetes/salt-key-operator
+  repository: ghcr.io/saltstack/salt-key-operator
   tag: "0.1.0"
   pullPolicy: IfNotPresent
 
@@ -13,17 +14,19 @@ image:
 # Bump this only alongside leaderElection.enabled below.
 replicas: 1
 
-# Restricts the operator's watches to a single namespace - and, as long as
-# this matches the namespace the operator itself is installed into (the
-# recommended setup - see README.md and salt-master-kubernetes's own
-# namespace default), also switches RBAC from a cluster-wide ClusterRole to
-# a namespaced Role, the smallest footprint this operator can run with.
-# Defaults to "salt-master" to match salt-master-kubernetes's own default
-# namespace - install both charts into the same namespace and everything
-# lines up with no further configuration. Set to "" (cluster-wide) only for
-# a genuine multi-tenant cluster with SaltMinionKey objects and target
-# master releases spread across multiple namespaces.
-watchNamespace: salt-master
+# Restricts the operator's watches to a single namespace, and gives it a
+# namespaced Role (in that namespace) instead of a cluster-wide ClusterRole:
+# the smallest footprint this operator can run with. Empty (the default) means
+# the namespace this release is installed into, so installing the operator
+# (or the salt-master chart that bundles it) into the namespace of the
+# salt-master release needs no further configuration. Set it only to watch a
+# different single namespace.
+watchNamespace: ""
+
+# Watch every namespace, with a ClusterRole, instead of a single one. Only for a
+# genuine multi-tenant cluster with SaltMinionKey objects and target master
+# releases spread across namespaces. Takes precedence over watchNamespace.
+clusterWide: false
 
 # Leader election exists to let >1 operator replica run without split-brain
 # writers - irrelevant, and pure overhead, at the default replicas: 1.

@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
 #
-# Self-contained Salt minion image for salt-minion-kubernetes: core Salt plus
+# Self-contained Salt minion image for the salt-minion chart: core Salt plus
 # saltext.vault and saltext.kubernetes, both pip-installed from PyPI.
 FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG SALT_VERSION=3008.2
+ARG SALT_VERSION=3008.5
 ARG SALT_UID=10001
 ARG SALT_GID=10001
 ARG SALT_HOME=/opt/saltstack/salt
@@ -22,8 +22,6 @@ ARG PIP_TRUSTED_HOST=""
 ARG PIP_ONLY_BINARY=""
 
 ARG APT_MIRROR=""
-ARG SALT_GPG_KEY_URL="https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public"
-ARG SALT_APT_REPO_URL="https://packages.broadcom.com/artifactory/saltproject-deb"
 
 LABEL org.opencontainers.image.title="Salt Minion"
 LABEL org.opencontainers.image.description="Salt Minion runtime preloaded with saltext.vault and saltext.kubernetes, for RBAC-driven kube-bench compliance assessments"

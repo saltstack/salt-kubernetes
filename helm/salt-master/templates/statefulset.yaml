@@ -1,0 +1,357 @@
+{{- include "salt-master.validate" . -}}
+{{- $cluster := .Values.agent.cluster -}}
+{{- $isolated := and $cluster.enabled (eq $cluster.storageMode "isolated") -}}
+{{- $shared := and $cluster.enabled (eq $cluster.storageMode "shared") -}}
+{{- $keysDir := include "salt-master.keysDir" . -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: salt-master
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: salt-master
+    app.kubernetes.io/name: salt-master
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  serviceName: salt-master-headless
+  replicas: {{ .Values.agent.replicas }}
+  # Masters don't depend on each other's start order: cluster peers join
+  # dynamically, and classic multi-master replicas are fully independent.
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: salt-master
+  template:
+    metadata:
+      labels:
+        app: salt-master
+        app.kubernetes.io/name: salt-master
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      {{- if and $cluster.enabled $cluster.hostNetwork }}
+      # The master's cluster identity is its node's IP (status.podIP of a
+      # hostNetwork pod). One master per node: they bind the node's ports.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: salt-master
+              topologyKey: kubernetes.io/hostname
+      {{- end }}
+      {{- with .Values.agent.image.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agent.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.agent.podSecurityContext | nindent 8 }}
+      {{- if not $cluster.enabled }}
+      # Kubernetes Secret volumes are read-only, but Salt needs a writable PKI
+      # directory (it creates minions_pre, minions_rejected and minions_denied
+      # in it). Same pattern as the salt-minion chart: this init container
+      # runs as the same non-root user as the master (the pod's fsGroup makes
+      # the 0440 Secret files readable), copies the keys into a writable
+      # emptyDir, and the master mounts that emptyDir's `master` subdirectory.
+      # The directory is created here, by the master's own user, instead of
+      # by kubelet as a subPath mount, which would leave it root-owned.
+      # (Classic mode only: in cluster mode every master generates and keeps
+      # its own keypair on its persistent state volume.)
+      initContainers:
+        - name: prepare-master-keys
+          image: {{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+
+              umask 077
+              test -s /var/run/salt-master-keys/master.pem
+              test -s /var/run/salt-master-keys/master.pub
+
+              mkdir -p /pki/master
+              chmod 0700 /pki/master
+              cp /var/run/salt-master-keys/master.pem /pki/master/master.pem
+              cp /var/run/salt-master-keys/master.pub /pki/master/master.pub
+              test -s /pki/master/master.pem
+              test -s /pki/master/master.pub
+              chmod 0400 /pki/master/master.pem
+              chmod 0644 /pki/master/master.pub
+          volumeMounts:
+            - name: master-keys-source
+              mountPath: /var/run/salt-master-keys
+              readOnly: true
+            - name: master-keys
+              mountPath: /pki
+          securityContext:
+            {{- toYaml .Values.agent.containerSecurityContext | nindent 12 }}
+      {{- end }}
+      {{- if $cluster.enabled }}
+      # Kubelet creates PVC subPath directories root-owned, which the
+      # non-root master cannot chmod or own. So the directories are created
+      # here first, by the master's own user (the pod's fsGroup makes the
+      # volume root group-writable), and the master then mounts the
+      # existing subdirectories. Same non-root pattern as the salt-minion
+      # chart; no root and no added capabilities.
+      initContainers:
+        - name: prepare-cluster-dirs
+          image: {{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+
+              umask 077
+              mkdir -p /state/master-pki
+              {{- if $isolated }}
+              mkdir -p /state/cluster-pki /state/cache
+              {{- end }}
+              {{- if $shared }}
+              # The shared volume must already be writable by this uid/gid.
+              mkdir -p /shared/cluster-pki /shared/cache /shared/file-roots /shared/pillar-roots
+              {{- end }}
+          volumeMounts:
+            - name: state
+              mountPath: /state
+            {{- if $shared }}
+            - name: shared
+              mountPath: /shared
+            {{- end }}
+          securityContext:
+            {{- toYaml .Values.agent.containerSecurityContext | nindent 12 }}
+      {{- end }}
+
+      containers:
+        - name: salt-master
+          image: {{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          env:
+            - name: SALT_AUTO_ACCEPT
+              value: {{ .Values.agent.autoAccept | quote }}
+            - name: SALT_PRESENCE_EVENTS
+              value: {{ .Values.agent.presenceEvents | quote }}
+            {{- with .Values.agent.masterId }}
+            - name: SALT_MASTER_ID
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if $cluster.enabled }}
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            # Salt's consensus layer identifies a master by its `interface`,
+            # which must be its own peer-reachable IP.
+            - name: SALT_CLUSTER_NODE_ADDRESS
+              value: $(POD_IP)
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: SALT_CLUSTER_ID
+              value: {{ include "salt-master.clusterId" . | quote }}
+            - name: SALT_CLUSTER_PEERS
+              value: {{ include "salt-master.clusterPeers" . | quote }}
+            - name: SALT_CLUSTER_PKI_DIR
+              value: {{ $keysDir | quote }}
+            - name: SALT_CLUSTER_POOL_PORT
+              value: {{ $cluster.poolPort | quote }}
+            - name: SALT_CLUSTER_ISOLATED_FILESYSTEM
+              value: {{ $isolated | quote }}
+            - name: SALT_CLUSTER_AUTO_REPLACE_VOTERS
+              # hasKey: `helm upgrade --reuse-values` from an older release
+              # leaves this key unset; treat that as the default (false).
+              value: {{ if hasKey $cluster "autoReplaceVoters" }}{{ $cluster.autoReplaceVoters | quote }}{{ else }}"false"{{ end }}
+            - name: SALT_CLUSTER_MIN_VOTERS
+              value: {{ $cluster.minVoters | default (max 1 (sub (int .Values.agent.replicas) 1)) | quote }}
+            {{- with $cluster.keysCacheDriver }}
+            - name: SALT_CLUSTER_KEYS_CACHE_DRIVER
+              value: {{ . | quote }}
+            {{- end }}
+            - name: SALT_CLUSTER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "salt-master.clusterSecretName" . }}
+                  key: cluster-secret
+            {{- end }}
+          ports:
+            - name: publish
+              containerPort: 4505
+            - name: ret
+              containerPort: 4506
+            {{- if $cluster.enabled }}
+            - name: cluster-pool
+              containerPort: {{ $cluster.poolPort }}
+            {{- end }}
+          volumeMounts:
+            {{- if $cluster.enabled }}
+            - name: state
+              mountPath: /etc/salt/pki/master
+              subPath: master-pki
+            {{- if $isolated }}
+            - name: state
+              mountPath: {{ $keysDir }}
+              subPath: cluster-pki
+            - name: state
+              mountPath: /var/cache/salt/master
+              subPath: cache
+            {{- end }}
+            {{- if $shared }}
+            - name: shared
+              mountPath: {{ $keysDir }}
+              subPath: cluster-pki
+            - name: shared
+              mountPath: /var/cache/salt/master
+              subPath: cache
+            - name: shared
+              mountPath: /srv/salt
+              subPath: file-roots
+            - name: shared
+              mountPath: /srv/pillar
+              subPath: pillar-roots
+            {{- end }}
+            {{- else }}
+            - name: master-keys
+              mountPath: /etc/salt/pki/master
+              subPath: master
+            {{- if .Values.agent.jobCache.persistence.enabled }}
+            - name: job-cache
+              mountPath: /var/cache/salt/master/jobs
+            {{- end }}
+            {{- end }}
+            {{- if .Values.agent.trustedMinions.enabled }}
+            # These are writable directories populated by the
+            # trusted-minions-sync sidecar.
+            - name: trusted-minions-live
+              mountPath: {{ $keysDir }}/minions
+            - name: trusted-minions-pre
+              mountPath: {{ $keysDir }}/minions_pre
+            - name: trusted-minions-rejected
+              mountPath: {{ $keysDir }}/minions_rejected
+            {{- end }}
+          securityContext:
+            {{- toYaml .Values.agent.containerSecurityContext | nindent 12 }}
+
+        {{- if .Values.agent.trustedMinions.enabled }}
+        - name: trusted-minions-sync
+          # ConfigMap volume files are symlinks. Salt 3008 rejects symlinks
+          # in its local key store, so copy them into writable emptyDirs.
+          image: {{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -u
+
+              while true; do
+                for f in /var/run/salt-key-operator/trusted-minions/*; do
+                  [ -e "$f" ] || continue
+
+                  b="$(basename "$f")"
+                  cp -f "$f" "{{ $keysDir }}/minions/$b"
+
+                  # An accepted key must not also remain pending or rejected.
+                  rm -f \
+                    "{{ $keysDir }}/minions_pre/$b" \
+                    "{{ $keysDir }}/minions_rejected/$b"
+                done
+
+                for f in {{ $keysDir }}/minions/*; do
+                  [ -e "$f" ] || continue
+
+                  b="$(basename "$f")"
+
+                  if [ ! -e "/var/run/salt-key-operator/trusted-minions/$b" ]; then
+                    rm -f "$f"
+                  fi
+                done
+
+                sleep {{ .Values.agent.trustedMinions.syncIntervalSeconds }}
+              done
+          volumeMounts:
+            - name: trusted-minions-src
+              mountPath: /var/run/salt-key-operator/trusted-minions
+              readOnly: true
+            - name: trusted-minions-live
+              mountPath: {{ $keysDir }}/minions
+            - name: trusted-minions-pre
+              mountPath: {{ $keysDir }}/minions_pre
+            - name: trusted-minions-rejected
+              mountPath: {{ $keysDir }}/minions_rejected
+          securityContext:
+            {{- toYaml .Values.agent.containerSecurityContext | nindent 12 }}
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+        {{- end }}
+
+      volumes:
+        {{- if not $cluster.enabled }}
+        # The generated/existing Secret is mounted read-only and copied into
+        # a writable emptyDir by prepare-master-keys.
+        - name: master-keys-source
+          secret:
+            secretName: {{ .Values.agent.masterKeySecretName | default (printf "%s-master-keys" .Release.Name) }}
+            defaultMode: 0440
+        - name: master-keys
+          emptyDir: {}
+        {{- end }}
+        {{- if $shared }}
+        - name: shared
+          persistentVolumeClaim:
+            claimName: {{ $cluster.sharedStorage.existingClaim }}
+        {{- end }}
+        {{- if .Values.agent.trustedMinions.enabled }}
+        - name: trusted-minions-src
+          configMap:
+            name: {{ .Values.agent.trustedMinions.configMapName }}
+        - name: trusted-minions-live
+          emptyDir: {}
+        - name: trusted-minions-pre
+          emptyDir: {}
+        - name: trusted-minions-rejected
+          emptyDir: {}
+        {{- end }}
+
+  {{- if or $cluster.enabled .Values.agent.jobCache.persistence.enabled }}
+  volumeClaimTemplates:
+    {{- if $cluster.enabled }}
+    - metadata:
+        name: state
+      spec:
+        accessModes:
+          - {{ $cluster.persistence.accessMode }}
+        {{- with $cluster.persistence.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $cluster.persistence.size }}
+    {{- else }}
+    - metadata:
+        name: job-cache
+      spec:
+        accessModes:
+          - {{ .Values.agent.jobCache.persistence.accessMode }}
+        {{- with .Values.agent.jobCache.persistence.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.agent.jobCache.persistence.size }}
+    {{- end }}
+  {{- end }}

@@ -4,18 +4,47 @@ Check the workload:
 
   kubectl -n {{ .Values.namespace }} get pods -l app=salt-master
 
+{{- if .Values.agent.cluster.enabled }}
+
+Salt master cluster "{{ include "salt-master.clusterId" . }}" ({{ .Values.agent.replicas }} replicas, {{ .Values.agent.cluster.storageMode }} storage).
+Point minions at the flat Service (salt-master.{{ .Values.namespace }}.svc), not at individual pods. Verify:
+
+  kubectl -n {{ .Values.namespace }} exec salt-master-0 -c salt-master -- salt-run cluster.members
+
+Known limitation: each master's pod IP is its cluster identity and changes when
+the pod restarts, so a restarted master cannot rejoin. Treat pod restarts as
+unsupported (see the chart README, "Master cluster").
+{{- else }}
+{{- if gt (int .Values.agent.replicas) 1 }}
+
+Classic multi-master ({{ .Values.agent.replicas }} replicas sharing one keypair). Minions must list every master
+individually in their `master:` setting:
+{{ range $i := until (int .Values.agent.replicas) }}
+  salt-master-{{ $i }}.salt-master-headless.{{ $.Values.namespace }}.svc.{{ $.Values.agent.cluster.clusterDomain }}
+{{- end }}
+{{- end }}
+{{- end }}
+
 Check the Salt Master logs:
 
-  kubectl -n {{ .Values.namespace }} logs deployment/salt-master \
+  kubectl -n {{ .Values.namespace }} logs statefulset/salt-master \
     --container salt-master
 
 List known minion keys:
 
-  kubectl -n {{ .Values.namespace }} exec deployment/salt-master \
+  kubectl -n {{ .Values.namespace }} exec salt-master-0 \
     --container salt-master \
     -- salt-key -L
 
 {{- if .Values.agent.trustedMinions.enabled }}
+{{- if ne .Release.Namespace .Values.namespace }}
+
+WARNING: this release was installed into namespace "{{ .Release.Namespace }}", but the
+salt-master objects are in "{{ .Values.namespace }}". The bundled salt-key-operator is deployed
+into the release namespace and watches it by default, so it will not see the master's
+trusted-minions ConfigMap. Reinstall with --namespace {{ .Values.namespace }}, or set
+salt-key-operator.watchNamespace={{ .Values.namespace }}.
+{{- end }}
 
 Minion trust is managed declaratively by salt-key-operator.
 
@@ -47,12 +76,19 @@ salt-key-operator integration is disabled.
 
 Accept a pending minion manually:
 
-  kubectl -n {{ .Values.namespace }} exec deployment/salt-master \
+  kubectl -n {{ .Values.namespace }} exec salt-master-0 \
     --container salt-master \
     -- salt-key -a '<minion-id>'
+{{- if and (not .Values.agent.cluster.enabled) (gt (int .Values.agent.replicas) 1) }}
+
+Repeat this against every master pod (salt-master-0 .. salt-master-{{ sub (int .Values.agent.replicas) 1 }}): in
+classic multi-master mode each master keeps its own list of accepted keys.
+{{- end }}
+{{- if not .Values.agent.cluster.enabled }}
 
 Warning: manually accepted minion keys are stored in the pod's writable
 temporary PKI volume and do not survive a Salt Master pod replacement.
 Enable agent.trustedMinions.enabled for persistent declarative trust.
+{{- end }}
 
 {{- end }}

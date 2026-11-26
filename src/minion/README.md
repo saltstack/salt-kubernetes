@@ -1,93 +1,105 @@
-# Salt Minion Images for Kubernetes
+# Salt Minion Images
 
-This directory contains Dockerfiles for building Salt Minion images optimized for Kubernetes deployments. 
+This directory contains the Dockerfiles for the Salt Minion images used by the
+[`salt-minion` Helm chart](../../helm/salt-minion/README.md).
 
-Two flavors are provided:
+Two flavors are provided. They share the same entrypoint behaviour, runtime identity and
+build arguments and differ in the Salt extensions they carry:
 
-1. **Kubernetes Minion** (`kubernetes/`) - General-purpose minion with Kubernetes and Vault support
-2. **VCF Minion** (`vcf/`) - VMware Cloud Foundation-specific extensions
+1. **Kubernetes Minion** (`kubernetes/`) - `saltext.kubernetes` and `saltext.vault`
+2. **VCF Minion** (`vcf/`) - the same plus `saltext.vcf` (VMware Cloud Foundation) and
+   `saltext.bmc`
+
+The extension sets live in `kubernetes/salt-extensions.txt` and
+`vcf/salt-extensions.txt`. See [CHANGELOG.md](../../helm/salt-minion/CHANGELOG.md) for the
+Salt and extension versions in each image release, and
+[`docs/building.md`](../../docs/building.md) for building and publishing.
 
 ## Kubernetes Minion
 
-A Salt Minion Docker image built from the official Salt onedir distribution using Salt's [bootstrap script](https://github.com/saltstack/salt-bootstrap).
+A Salt Minion Docker image built from the official Salt onedir distribution using Salt's
+[bootstrap script](https://github.com/saltstack/salt-bootstrap).
 
-This minion is designed specifically for running inside Kubernetes clusters and includes:
-- Support for in-cluster deployments via Kubernetes API
-- Integration with Salt's Kubernetes execution module (`saltext.kubernetes`)
+It is designed for running inside Kubernetes clusters and includes:
+- Salt's Kubernetes execution module (`saltext.kubernetes`)
 - HashiCorp Vault integration for secrets management (`saltext.vault`)
-- Bundled `kubectl` for direct cluster interaction
+- Bundled `kubectl` (`INCLUDE_KUBECTL=true`, version `KUBECTL_VERSION`)
 - Support for CIS Kubernetes compliance assessments via kube-bench
 
 The image:
 
-- Uses Salt `3008.2` by default
-- Runs as the non-root `salt` user with UID/GID `10000`
-- Supports optional corporate CA during image build
-- Does not retain build-time corporate CA in final image
-- Communicates with Salt Master on ports `4505` (publish) and `4506` (request/return)
-- Includes Docker health check
-- Supports both self-generated and pre-seeded keypairs
-- Enables secure multi-master connectivity
-
-See [CHANGELOG.md](../../helm/salt-minion/CHANGELOG.md) for Salt versions in each image release.
+- Uses Salt `3008.5` by default (`SALT_VERSION`; `latest` is also accepted)
+- Installs the extensions without replacing the onedir Salt: `salt` is constrained to the
+  installed version while pip installs the extensions (see
+  [CHANGELOG.md](../../helm/salt-minion/CHANGELOG.md))
+- Runs as the non-root `salt` user with UID/GID `10001` (`SALT_UID`/`SALT_GID`)
+- Supports an optional extra CA during the image build and does not keep it in the
+  final image
+- Communicates with the Salt Master on ports `4505` (publish) and `4506` (request/return)
+- Can pre-seed the minion keypair from environment variables, or use a key already
+  present in `/etc/salt/pki/minion`
+- Supports multiple masters (a comma-separated `SALT_MASTER`)
+- Has no Docker `HEALTHCHECK`; the Helm chart supplies Kubernetes probes
 
 ### Build
 
-From the root of the `salt-kubernetes` repository:
+From the root of the repository:
 
 ```bash
 docker build \
-  --platform linux/arm64 \
   --tag salt-minion:local \
   ./src/minion/kubernetes
 ```
+
+Add `--platform linux/arm64` (or `linux/amd64`) to build for a specific architecture.
+`TARGETARCH` is set by BuildKit and selects the `kubectl` download.
 
 ### Build behind a corporate TLS proxy
 
-If HTTPS downloads require a corporate root certificate:
+If HTTPS downloads need an extra root certificate, pass it as the optional `build_ca`
+build secret. It is trusted only while the build downloads Salt, the extensions and
+`kubectl`, and is removed again afterwards:
 
 ```bash
-# Export certificate
-security find-certificate \
-  -a \
-  -c "Cloud Services Root CA" \
-  -p \
-  "${HOME}/Library/Keychains/login.keychain-db" \
-  /Library/Keychains/System.keychain \
-  /System/Library/Keychains/SystemRootCertificates.keychain \
-  > /private/tmp/cloud-services-root-ca.crt
-
-# Verify certificate
-openssl x509 \
-  -in /private/tmp/cloud-services-root-ca.crt \
-  -noout \
-  -subject \
-  -issuer \
-  -dates
-
-# Build with certificate
 docker build \
-  --platform linux/arm64 \
-  --secret id=build_ca,src=/private/tmp/cloud-services-root-ca.crt \
+  --secret id=build_ca,src=./corporate-root-ca.crt \
   --tag salt-minion:local \
   ./src/minion/kubernetes
 ```
 
+The `build_ca` secret is supported by the Kubernetes Dockerfile only; the VCF Dockerfile
+does not read it.
+
 ### Build arguments
+
+Both Dockerfiles take the same arguments:
 
 | Argument | Default | Purpose |
 | --- | --- | --- |
-| `SALT_VERSION` | `3008.2` | Salt version to install |
+| `SALT_VERSION` | `3008.5` | Salt version to install (`latest` is accepted) |
+| `SALT_UID`, `SALT_GID` | `10001` | Numeric user and group of the `salt` account the container runs as |
+| `SALT_HOME` | `/opt/saltstack/salt` | Home directory of the `salt` user |
+| `SALT_SHELL` | `/usr/sbin/nologin` | Login shell of the `salt` user |
+| `INCLUDE_KUBECTL` | `true` | Install `kubectl` into the image |
+| `KUBECTL_VERSION` | `v1.30.2` | `kubectl` version to download |
+| `EXTRA_SALT_EXTENSIONS` | empty | Extra pip requirements (space separated), installed after `salt-extensions.txt`, with the same `salt` constraint |
+| `PIP_INDEX_URL` | empty | Install the extensions from this PyPI index (for example an internal mirror) |
+| `PIP_TRUSTED_HOST` | empty | Passed to pip as `--trusted-host` |
+| `PIP_ONLY_BINARY` | empty | Passed to pip as `--only-binary` |
+| `APT_MIRROR` | empty | Replaces the `URIs:` of the Ubuntu apt sources |
 
 Example:
 
 ```bash
 docker build \
-  --platform linux/arm64 \
-  --build-arg SALT_VERSION=3008.2 \
+  --build-arg SALT_VERSION=3008.5 \
+  --build-arg EXTRA_SALT_EXTENSIONS="saltext.example==1.0.0" \
   --tag salt-minion:local \
   ./src/minion/kubernetes
 ```
+
+The salt user and group IDs must match the `fsGroup` the chart uses
+(`agent.podSecurityContext.fsGroup`, default `10001`) if you change them.
 
 ### Verify the image
 
@@ -96,32 +108,20 @@ docker image inspect salt-minion:local \
   --format 'Image={{.RepoTags}} Architecture={{.Architecture}} OS={{.Os}}'
 ```
 
-Expected on Apple Silicon Mac:
-
-```text
-Image=[salt-minion:local] Architecture=arm64 OS=linux
-```
-
-Verify Salt version:
+Verify the Salt version and that the onedir launcher is intact:
 
 ```bash
-docker run --rm \
-  --platform linux/arm64 \
-  salt-minion:local \
-  salt-minion --version
+docker run --rm --entrypoint salt-minion salt-minion:local --version
+docker run --rm --entrypoint salt-pip salt-minion:local list
 ```
 
-Expected:
-
-```text
-salt-minion 3008.2 (Argon)
-```
+The first command prints `salt-minion 3008.5 (Argon)` for the default build. The second
+should list one `salt` package, at the same version, plus the extensions.
 
 Verify runtime identity and permissions:
 
 ```bash
 docker run --rm \
-  --platform linux/arm64 \
   --entrypoint /bin/sh \
   salt-minion:local \
   -c '
@@ -129,20 +129,13 @@ docker run --rm \
     ls -ldn \
       /etc/salt \
       /etc/salt/minion.d \
-      /etc/salt/pki \
+      /etc/salt/pki/minion \
       /var/cache/salt/minion
   '
 ```
 
-Expected:
-
-```text
-uid=10000(salt) gid=10000(salt)
-drwxr-xr-x  8 root      root  4096 Aug 15 20:31 /etc/salt
-drwxr-xr-x  2 root      root  4096 Aug 15 20:31 /etc/salt/minion.d
-drwxr-xr-x  4 root      root  4096 Aug 15 20:31 /etc/salt/pki
-drwxr-xr-x  4 salt      salt  4096 Aug 15 20:31 /var/cache/salt/minion
-```
+Expected: `uid=10001(salt) gid=10001(salt)`, and the listed directories owned by
+`10001 10001`.
 
 ### Run
 
@@ -157,89 +150,50 @@ docker run --rm \
 
 ### Environment variables
 
-The entrypoint translates these variables into minion configuration or uses them for key provisioning:
+The entrypoint turns these variables into minion configuration or uses them for key
+provisioning:
 
 | Variable | Effect |
 | --- | --- |
-| `SALT_MASTER` | Sets master address (required for in_cluster mode). Can be comma-separated list for multi-master mode. |
-| `SALT_MASTER_PORT` | Sets Salt request/return port. Default: `4506`. |
-| `SALT_PUBLISH_PORT` | Sets Salt publish port. Default: `4505`. |
-| `SALT_MINION_ID` | Sets minion ID. Pod hostname used if not supplied. |
-| `SALT_MASTER_FINGER` | Sets master fingerprint for trust verification (legacy - use SALT_MASTER_PUBKEY_B64 instead). |
-| `SALT_MASTER_PUBKEY_B64` | Base64-encoded master public key for direct trust without fingerprint. |
-| `SALT_MINION_PRIVATE_KEY_B64` | Base64-encoded minion private key (pre-seeded keypair). |
-| `SALT_MINION_PUBLIC_KEY_B64` | Base64-encoded minion public key (pre-seeded keypair). |
-| `SALT_LOG_LEVEL` | Sets minion log level. Default: `info`. |
-| `SALT_AUTH_TIMEOUT` | Seconds to wait before master auth retry. Default: `60`. |
-| `SALT_MASTER_ALIVE_INTERVAL` | Seconds between master connection checks. Default: `60`. |
-| `SALT_RECON_DEFAULT` | ZeroMQ reconnect backoff start (ms). Default: `1000`. |
-| `SALT_RECON_MAX` | ZeroMQ reconnect backoff max (ms). Default: `5000`. |
-| `SALT_RECON_RANDOMIZE` | Jitter reconnect delay to prevent thundering herd. Default: `true`. |
-| `SALT_FIPS_MODE` | Enable FIPS-compliant crypto. Default: `true`. |
-| `VAULT_ADDR` | Vault server address (enables saltext.vault). |
-| `VAULT_AUTH_METHOD` | Vault auth method: `approle` or `token`. Default: `approle`. |
-| `VAULT_ROLE_ID` | Vault AppRole role ID. |
-| `VAULT_SECRET_ID` | Vault AppRole secret ID. |
-| `VAULT_SECRET_ID_FILE` | Path to Vault secret ID file. |
-| `VAULT_TOKEN` | Vault authentication token. |
-| `VAULT_TOKEN_FILE` | Path to Vault token file. |
+| `SALT_MASTER` | Master address (required unless `/etc/salt/minion.d/10-master.conf` is mounted). A comma-separated list becomes a YAML list: Salt multi-master mode, one simultaneous connection per master. |
+| `SALT_MASTER_PORT` | Request/return port (`master_port`). Default `4506`. Must be numeric. |
+| `SALT_PUBLISH_PORT` | Publish port (`publish_port`). Default `4505`. Must be numeric. |
+| `SALT_MINION_ID` | Minion ID. If empty, `POD_NAME` is used, then the container hostname. The Helm chart sets `POD_NAME` to the pod name. |
+| `POD_NAME` | Used as the minion ID when `SALT_MINION_ID` is empty. |
+| `SALT_MASTER_FINGER` | Master fingerprint (`master_finger`), legacy. Ignored when `SALT_MASTER_PUBKEY_B64` is set. |
+| `SALT_MASTER_PUBKEY_B64` | Base64-encoded master public key, written to `/etc/salt/pki/minion/minion_master.pub` so the minion trusts the master without a fingerprint. |
+| `SALT_MINION_PRIVATE_KEY_B64`, `SALT_MINION_PUBLIC_KEY_B64` | Base64-encoded minion keypair, written to `/etc/salt/pki/minion/minion.pem` (`0400`) and `minion.pub` (`0644`). Applied only when both are set and `minion.pem` does not already exist. |
+| `SALT_LOG_LEVEL` | Minion log level. Default `info`. Logs go to stdout. |
+| `SALT_AUTH_TIMEOUT` | `auth_timeout` in seconds. Default `60`. |
+| `SALT_MASTER_ALIVE_INTERVAL` | `master_alive_interval` in seconds. Default `60`. |
+| `SALT_RECON_DEFAULT` | `recon_default` in ms. Default `1000`. |
+| `SALT_RECON_MAX` | `recon_max` in ms. Default `5000`. |
+| `SALT_RECON_RANDOMIZE` | `recon_randomize`, jitters reconnects. Default `True`. |
+| `SALT_FIPS_MODE` | Writes `15-fips.conf` with `fips_mode: True` and the algorithms below. Default `true`. |
+| `SALT_ENCRYPTION_ALGORITHM`, `SALT_SIGNING_ALGORITHM` | FIPS algorithms. Defaults `OAEP-SHA224` and `PKCS1v15-SHA224`. |
+| `VAULT_ADDR` | Vault server address; enables the `vault` and sdb configuration. |
+| `VAULT_AUTH_METHOD` | `approle` (default) or `token`. |
+| `VAULT_ROLE_ID` | AppRole role ID. |
+| `VAULT_SECRET_ID` | AppRole secret ID. |
+| `VAULT_SECRET_ID_FILE` | Path to a file whose content is used as the secret ID, if it exists. |
+| `VAULT_TOKEN` | Vault token (for `token` auth). |
+| `VAULT_TOKEN_FILE` | Path to a file whose content is used as the token, if it exists. |
+| `VAULT_SDB_PROFILE` | Name of the sdb profile that uses the vault driver. Default `vault_sdb`. |
 
-Additional configuration can be mounted as read-only volumes:
-
-```bash
-docker run --rm \
-  --env SALT_MASTER=salt-master.example.com \
-  --volume ./pillar:/srv/pillar:ro \
-  --volume ./states:/srv/salt:ro \
-  salt-minion:local
-```
-
-### Health check
-
-The image health check verifies the minion can respond to local requests:
-
-```bash
-docker run --detach \
-  --name salt-minion-test \
-  --env SALT_MASTER=127.0.0.1 \
-  salt-minion:local
-```
-
-Wait for health check:
-
-```bash
-sleep 40
-```
-
-Inspect health:
-
-```bash
-docker inspect salt-minion-test \
-  --format 'Status={{.State.Status}} Health={{.State.Health.Status}}'
-```
-
-Expected:
-
-```text
-Status=running Health=healthy
-```
-
-Remove container:
-
-```bash
-docker rm --force salt-minion-test
-```
+The entrypoint always sets `master_tries: -1` and `retry_dns: 30`. Extra Salt
+configuration can be mounted read-only under `/etc/salt/minion.d/`. If `SALT_MASTER` is
+not set, the entrypoint requires `/etc/salt/minion.d/10-master.conf` to be mounted and
+exits with status 64 otherwise.
 
 ### Smoke test
 
 ```bash
-docker run --rm \
-  salt-minion:local \
-  salt-minion --version
+docker run --rm --entrypoint salt-minion salt-minion:local --version
 ```
 
 ```bash
 docker run --rm \
+  --env SALT_MASTER=127.0.0.1 \
   --entrypoint /bin/sh \
   salt-minion:local \
   -c 'salt-call --local test.ping'
@@ -247,134 +201,85 @@ docker run --rm \
 
 ## VCF Minion
 
-A specialized Salt Minion image for VMware Cloud Foundation (VCF) deployments. Includes:
-- VMware `saltext.vcf` extension (vCenter, NSX, SDDC-M, VCF Ops automation)
-- Vault integration for credentials sourcing
-- Configurable extensions support
-- Full project structure (Dockerfile, Docker Compose, Kubernetes Helm chart)
-
-The VCF minion is a complete project directory with its own documentation and deployment options.
-
-### Building VCF Minion
-
-From the minion/vcf directory:
+The VCF image has the same entrypoint, identity and build arguments as the Kubernetes
+image. It carries `saltext.vcf` (VMware Cloud Foundation 9.x automation: vCenter, NSX,
+SDDC Manager, VCF Operations, and more) and `saltext.bmc` in addition to
+`saltext.kubernetes` and `saltext.vault`.
 
 ```bash
 docker build \
-  --platform linux/arm64 \
   --tag salt-minion-vcf:local \
   ./src/minion/vcf
 ```
 
-### VCF-Specific Documentation
-
-See the complete VCF minion documentation:
-
-- **Helm Chart**: `helm/salt-minion-vcf/README.md` - Kubernetes deployment with StatefulSet
-- **Full Project**: `../salt-minion-vcf/README.md` - Docker, Docker Compose, and advanced features
+There is no separate VCF chart. Use the `salt-minion` chart and point
+`agent.image.repository` and `agent.image.tag` at the VCF image.
 
 ## Kubernetes and Helm
 
-Both minion flavors include Helm charts for Kubernetes deployment.
+The [`salt-minion` chart](../../helm/salt-minion/README.md) runs either image. It supports
+two deployment modes:
 
-### Kubernetes Minion Helm Chart
-
-Located at: `helm/salt-minion`
-
-Supports two deployment modes:
-- **in_cluster** (default): Minion runs as Deployment inside cluster
-- **external**: RBAC only for minion running outside cluster
-
-Features:
-- Declarative minion key management (via Salt Key Operator)
-- CIS Kubernetes compliance assessment support
-- Optional Vault integration
-- PKI persistence across restarts
-- Security hardening (non-root, no privilege escalation)
+- **in_cluster** (default): the minions run as a StatefulSet inside the cluster. Each pod
+  is its own minion, with the pod name as the minion ID and its own keypair.
+- **external**: RBAC only, for a minion running outside the cluster.
 
 ```bash
-# Prepare
-helm dependency update ./helm/salt-minion
-
-# Lint
-helm lint ./helm/salt-minion
-
-# Validate
-helm template salt-minion \
-  ./helm/salt-minion \
+# Lint and render
+helm lint ./helm/salt-minion --set agent.saltMasterHost=salt-master.example.com \
+  --set agent.minion.allowSelfGeneratedKey=true
+helm template salt-minion ./helm/salt-minion \
   --set agent.saltMasterHost=salt-master.example.com \
+  --set agent.minion.allowSelfGeneratedKey=true \
   | kubectl apply --dry-run=client --validate=true -f -
 
 # Install
-helm upgrade --install salt-minion \
-  ./helm/salt-minion \
+helm install salt-minion ./helm/salt-minion \
   --namespace salt \
   --create-namespace \
-  --set agent.saltMasterHost=salt-master.example.com
+  --set agent.saltMasterHost=salt-master.example.com \
+  --set agent.minion.allowSelfGeneratedKey=true
 ```
 
-### VCF Minion Helm Chart
-
-Located at: `helm/salt-minion-vcf` (in separate project directory)
-
-Features:
-- StatefulSet for stable identity
-- Persistent PKI storage
-- Vault integration
-- Pillar Secret support
-- Health checks (liveness and readiness probes)
-
-```bash
-helm upgrade --install salt-minion-vcf \
-  ./helm/salt-minion-vcf \
-  --namespace salt \
-  --create-namespace \
-  --set salt.master=salt-master.example.com \
-  --set persistence.enabled=true
-```
+The chart supplies the keys through a Secret and an init container, not through the
+`SALT_MINION_*_KEY_B64` variables. It sets `POD_NAME`, so the minion ID is the pod name
+unless `agent.minion.id` is set. See the chart README for the key layouts and the
+multi-replica model.
 
 ## Configuration
 
 ### Minion Identity
 
-Minion ID can be set in multiple ways:
+The minion ID is chosen in this order:
 
-1. **Environment variable** (highest priority):
-   ```bash
-   SALT_MINION_ID=my-minion
-   ```
-
-2. **Pod hostname** (Kubernetes default):
-   - For Deployment: random pod name
-   - For StatefulSet: stable ordinal name (e.g., `salt-minion-vcf-0`)
-
-3. **Explicit values in Helm**:
-   ```yaml
-   agent:
-     minion:
-       id: my-custom-id
-   ```
+1. `SALT_MINION_ID`, if set. The chart sets it from `agent.minion.id` (one replica only).
+2. `POD_NAME`. The chart sets it from the pod name; in a StatefulSet that is a stable name
+   such as `salt-minion-0`.
+3. The container hostname.
 
 ### Key Management
 
-Keys are stored at `/etc/salt/pki/minion/`:
+Keys live in `/etc/salt/pki/minion/` (declared as a `VOLUME`):
 
-- `minion.pem` - Private key (mode 0400)
-- `minion.pub` - Public key (mode 0644)
+- `minion.pem` - private key (mode 0400)
+- `minion.pub` - public key (mode 0644)
 
-#### Self-Generated Keys (Development)
+#### Self-generated keys (development)
+
+If no key is supplied and none exists in the directory, Salt generates a keypair when the
+minion first starts. Without a volume on `/etc/salt/pki/minion` the key is lost when the
+container is removed, and the master sees a new, unaccepted minion each time.
 
 ```bash
 docker run --rm \
   --env SALT_MASTER=localhost \
-  --env SALT_MINION_PRIVATE_KEY_B64='' \  # Empty = self-generate
   salt-minion:local
 ```
 
-#### Pre-Seeded Keys (Production)
+#### Pre-seeded keys
 
 ```bash
-# Encode existing keypair
+# Encode an existing keypair
 PRIVATE_KEY=$(base64 -w0 < /path/to/minion.pem)
 PUBLIC_KEY=$(base64 -w0 < /path/to/minion.pub)
 
@@ -385,9 +290,12 @@ docker run --rm \
   salt-minion:local
 ```
 
+On macOS `base64` has no `-w0`; use `base64 -i <file>` (it does not wrap lines).
+
 ### Multi-Master Setup
 
-Connect to multiple masters simultaneously (Salt native multi-master mode):
+Connect to several independent masters simultaneously (Salt's native multi-master mode,
+not failover):
 
 ```bash
 docker run --rm \
@@ -395,11 +303,11 @@ docker run --rm \
   salt-minion:local
 ```
 
-The comma-separated list becomes a YAML list in minion configuration.
+The comma-separated list becomes a YAML list in the minion configuration. Every master
+has to accept the minion key. For a Salt master cluster, give the minion the single
+address of the cluster instead.
 
 ### Vault Integration
-
-Enable Vault for secure credential sourcing:
 
 ```bash
 docker run --rm \
@@ -412,7 +320,7 @@ docker run --rm \
   salt-minion:local
 ```
 
-Or in Helm:
+Or in Helm values:
 
 ```yaml
 agent:
@@ -420,12 +328,13 @@ agent:
     addr: https://vault.example.com:8200
     authMethod: approle
     roleId: my-role-id
-    secretIdFile: /var/run/secrets/vault/secret_id
+    secretId: my-secret-id
 ```
 
 ### FIPS Compliance
 
-FIPS mode is enabled by default. Disable only if master isn't FIPS-enforced:
+FIPS mode is enabled by default (`fips_mode: True`, `OAEP-SHA224` encryption and
+`PKCS1v15-SHA224` signing). Disable it only if the master is not FIPS-enforced:
 
 ```bash
 docker run --rm \
@@ -434,73 +343,41 @@ docker run --rm \
   salt-minion:local
 ```
 
+The Helm chart has no value for this, so chart-deployed minions always run with the
+default.
+
 ## Security Design
 
-The images apply the following security controls:
+- The Salt Minion runs as non-root UID/GID `10001` (numeric `USER`, so Kubernetes'
+  `runAsNonRoot` can verify it)
+- The `salt` user has no login shell and no created home directory
+- The directories the minion writes to (`/etc/salt`, `/var/cache/salt`, `/var/log/salt`)
+  are owned by that user
+- The extra build CA, if used, is not retained in the final image
+- Minion keys are never accepted automatically by the image; acceptance happens on the
+  master
+- Pre-seeded keys support a declarative trust model
 
-- Salt Minion runs as non-root UID/GID `10000`
-- No privilege escalation allowed
-- All Linux capabilities dropped
-- Private keys stored with mode `0400`
-- Public keys stored with mode `0644`
-- Corporate CA (if used) not retained in final image
-- Kubernetes Secret sources remain read-only
-- Automatic minion acceptance disabled by default
-- Pre-seeded keys support declarative trust model
+The chart adds no privilege escalation, drops all Linux capabilities, mounts the key
+Secret read-only with mode `0440` and sets `fsGroup: 10001`.
 
 ## Health Checks
 
-### Docker Health Check
+The images define no Docker `HEALTHCHECK`. The Helm chart gives the minion container two
+exec probes that run `salt-call --local test.ping`:
 
-The image includes a Docker health check:
+| Probe | Initial delay | Period | Timeout | Failure threshold |
+| --- | --- | --- | --- | --- |
+| Liveness | 30s | 60s | 10s | 3 |
+| Readiness | 15s | 30s | 10s | 3 |
 
-```dockerfile
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD salt-call --local test.ping >/dev/null 2>&1
-```
-
-### Kubernetes Health Probes
-
-Helm charts include:
-
-**Liveness Probe** - Verifies minion process is responsive
-- Initial delay: 30s (kubernetes), 20s (VCF)
-- Period: 60s (kubernetes), 30s (VCF)
-- Timeout: 10s
-- Failure threshold: 3
-
-**Readiness Probe** - Verifies minion is ready for commands
-- Initial delay: 15s (kubernetes), 10s (VCF)
-- Period: 30s
-- Timeout: 10s
-- Failure threshold: 3
-
-Both use: `salt-call --local test.ping`
-
-## Validation Performed
-
-The following validations were completed:
-
-- Helm linting for both charts
-- Kubernetes client-side validation of rendered templates
-- ARM64 builds of both images
-- Salt version verification
-- Non-root UID/GID verification
-- Directory ownership verification
-- Build-time CA removal verification
-- Docker health check validation
-- In-cluster minion deployment and connectivity
-- StatefulSet persistent identity verification
-- Multi-master minion connectivity
-- Key persistence across pod restarts
-- Kubernetes API communication (saltext.kubernetes)
-- Vault integration (saltext.vault)
+The command checks the local minion installation, not the master connection.
 
 ## Related Documentation
 
 - [Salt Minion Helm Chart](../../helm/salt-minion/README.md) - Kubernetes deployment details
-- [VCF Minion Project](../../../salt-minion-vcf/) - Complete VCF minion documentation
-- [Complete System Test Guide](../../docs/complete-system-test.md) - Integration testing procedures
+- [Building images](../../docs/building.md) - build arguments and publishing
+- [Complete System Test Guide](../../docs/complete-system-test.md) - integration testing procedures
 - [Salt Project Documentation](https://docs.saltproject.io/) - Salt configuration and modules
 
 ## Troubleshooting
@@ -528,25 +405,30 @@ docker run --rm \
 View minion logs:
 
 ```bash
-docker logs salt-minion-container-name
+docker logs salt-minion
 ```
 
-### Health check failing
+### `salt-minion: not found` or the wrong Salt version
 
-Test manually:
+An image built before the extension-constraint fix could have its onedir Salt replaced
+by a pip-installed `salt`, which removes the `salt-minion` launcher. Rebuild with the
+current Dockerfile. `salt-pip list` in the image should show a single `salt`.
 
-```bash
-docker exec salt-minion-container-name \
-  salt-call --local test.ping
-```
+### Entrypoint exits with "Salt Master configuration is missing"
+
+Set `SALT_MASTER`, or mount `/etc/salt/minion.d/10-master.conf`.
+
+### Cannot write keys or cache with a mounted volume
+
+The container user is `10001:10001`. A volume mounted on `/etc/salt/pki/minion` or
+`/var/cache/salt/minion` has to be writable by that user (in Kubernetes, `fsGroup: 10001`).
 
 ### FIPS mode issues
 
-If master is not FIPS-enforced, disable FIPS:
+If the master is not FIPS-enforced, disable FIPS:
 
 ```bash
 --env SALT_FIPS_MODE=false
 ```
 
-Default algorithms: `OAEP-SHA224` and `PKCS1v15-SHA224`
-
+Default algorithms: `OAEP-SHA224` and `PKCS1v15-SHA224`.

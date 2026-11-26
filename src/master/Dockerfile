@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Master-only counterpart to the salt-minion-vcf/salt-minion-kubernetes
+# Master-only counterpart to the salt-minion and salt-minion-vcf
 # minion images. Deliberately minimal: unlike either minion variant, this
 # image doesn't need any Salt extensions (execution/state modules run on
 # minions, not the master) or kubectl (the master never talks to a cluster
@@ -9,7 +9,7 @@ FROM ubuntu:24.04
 
 # Pinned rather than "latest" so a given salt-master-image release tag
 # reproducibly carries one specific Salt version - see CHANGELOG.md.
-ARG SALT_VERSION=3008.2
+ARG SALT_VERSION=3008.5
 
 LABEL org.opencontainers.image.title="Salt Master"
 LABEL org.opencontainers.image.description="Salt Master runtime for VCF Salt"

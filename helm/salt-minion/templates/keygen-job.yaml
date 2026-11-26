@@ -12,6 +12,8 @@ spec:
   template:
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        {{- toYaml .Values.keygen.podSecurityContext | nindent 8 }}
       {{- with .Values.keygen.image.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -22,6 +24,8 @@ spec:
         - name: keygen
           image: {{ include "salt-minion.keygenImage" . | quote }}
           imagePullPolicy: {{ .Values.keygen.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.keygen.containerSecurityContext | nindent 12 }}
           command: ["/bin/sh", "-c"]
           args:
             - |

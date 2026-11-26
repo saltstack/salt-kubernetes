@@ -34,7 +34,7 @@ fi
 
 # 4. Map Tag Entities
 TAG_MASTER="salt-master-v${MASTER_VER}"
-TAG_MINION_K8S="salt-minion-kubernetes-v${MINION_K8S_VER}"
+TAG_MINION_K8S="salt-minion-v${MINION_K8S_VER}"
 TAG_MINION_VCF="salt-minion-vcf-v${MINION_VCF_VER}"
 TAG_OPERATOR="salt-key-operator-v${OPERATOR_VER}"
 

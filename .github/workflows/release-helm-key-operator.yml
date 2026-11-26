@@ -29,7 +29,7 @@ jobs:
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             TAG_NAME=${GITHUB_REF#refs/tags/}
-            VERSION=${TAG_NAME#chart-operator-v}
+            VERSION=${TAG_NAME#chart-salt-key-operator-v}
             echo "is_tag=true" >> $GITHUB_OUTPUT
           else
             VERSION="0.0.0-snapshot"
@@ -50,8 +50,8 @@ jobs:
           # Ensure ONLY the clean numeric semver (e.g., 0.1.0) is injected
           CLEAN_VERSION=$(echo "${{ steps.vars.outputs.version }}" | sed -E 's/.*-v?([0-9]+\.[0-9]+\.[0-9]+.*)/\1/')
           
-          sed -i "s/^version:.*/version: ${CLEAN_VERSION}/g" helm/salt-minion/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: \"${CLEAN_VERSION}\"/g" helm/salt-minion/Chart.yaml
+          sed -i "s/^version:.*/version: ${CLEAN_VERSION}/g" helm/salt-key-operator/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${CLEAN_VERSION}\"/g" helm/salt-key-operator/Chart.yaml
           
           echo "CLEAN_VERSION=${CLEAN_VERSION}" >> $GITHUB_ENV
 
@@ -61,7 +61,7 @@ jobs:
 
       - name: Push Helm Chart OCI Artifact to GHCR
         run: |
-          helm push .dist/salt-key-operator-${{env.CLEAN_VERSION}}.tgz oci://ghcr.io/${{ steps.vars.outputs.registry_owner }}//helm
+          helm push .dist/salt-key-operator-${{env.CLEAN_VERSION}}.tgz oci://ghcr.io/${{ steps.vars.outputs.registry_owner }}/helm
 
       - name: Create GitHub Release
         if: steps.vars.outputs.is_tag == 'true'
@@ -73,7 +73,7 @@ jobs:
             Automated Helm Chart release for **Salt Key Operator**.
             Install with:
             ```bash
-            helm pull oci://ghcr.io/${{ steps.vars.outputs.registry_owner }}//helm/salt-key-operator --version ${{env.CLEAN_VERSION}}
+            helm pull oci://ghcr.io/${{ steps.vars.outputs.registry_owner }}/helm/salt-key-operator --version ${{env.CLEAN_VERSION}}
             ```
           draft: false
           prerelease: false

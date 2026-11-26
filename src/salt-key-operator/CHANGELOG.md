@@ -1,11 +1,12 @@
 # Changelog (salt-key-operator image)
 
-Records what each `salt-key-operator-image/vX.Y.Z` release tag (see
-[`docs/releasing.md`](../docs/releasing.md)) actually carries.
+Records what each image release carries. The release tag is
+`salt-key-operator-vX.Y.Z` (see [`docs/releasing.md`](../../docs/releasing.md));
+headings below use the older `salt-key-operator-image/vX.Y.Z` naming.
 
 ## salt-key-operator-image/v0.1.0
 - Initial release: `SaltMinionKey` (`salt.saltstack.io/v1alpha1`) controller,
-  reconciling into a target `salt-master-kubernetes` release's
+  reconciling into a target `salt-master` release's
   trusted-minions ConfigMap. Deliberately minimal CRD (just `minionId` +
   inline `publicKey` - no Secret reference, no explicit target reference;
   the controller auto-discovers the one trusted-minions ConfigMap in its

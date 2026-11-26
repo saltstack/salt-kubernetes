@@ -3,7 +3,8 @@ name: Release Docker - Salt Minion K8s
 on:
   push:
     tags:
-      - 'salt-minion-v*'
+      # A digit must follow the "v" so salt-minion-vcf-v* tags do not match.
+      - 'salt-minion-v[0-9]*'
   schedule:
     - cron: '0 3 * * 1' # Every Monday at 3:00 AM UTC
   workflow_dispatch:

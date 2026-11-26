@@ -29,7 +29,7 @@ set -euo pipefail
 #------------------------------------------------------------
 # Configuration
 #------------------------------------------------------------
-IMAGE_TAG_MASTER="3008.2"
+IMAGE_TAG_MASTER="3008.5"
 MINION_K8S_IMAGE_TAG="0.1.0"
 MINION_VCF_IMAGE_TAG="0.1.0"
 MAX_IMAGE_SIZE=$((500 * 1024 * 1024))   # 500 MiB
@@ -48,7 +48,7 @@ echo "--- Hadolint Dockerfiles"
 for df in src/master/Dockerfile \
           src/minion/vcf/Dockerfile \
           src/minion/kubernetes/Dockerfile \
-          salt-key-operator/Dockerfile; do
+          src/salt-key-operator/Dockerfile; do
     echo "Linting $df"
     hadolint "$df" || fail "Hadolint failed for $df"
 done
@@ -73,7 +73,8 @@ echo "# --- Ruff code lint/format check (skipped)"
 #------------------------------------------------------------
 echo "# --- ShellCheck"
 if command -v shellcheck >/dev/null; then
-  shellcheck src/minion/vcf/scripts/*.sh src/minion/kubernetes/scripts/*.sh || fail "ShellCheck errors"
+  shellcheck -S warning src/master/entrypoint.sh src/minion/kubernetes/entrypoint.sh \
+    src/minion/vcf/entrypoint.sh scripts/*.sh || fail "ShellCheck errors"
 else
   echo "shellcheck not installed; skipping"
 fi
@@ -96,7 +97,7 @@ else
     echo "yamllint not installed; skipping YAML lint"
 fi
 
-# Helper to run helm template and optionally fail on error
+# Helper to run helm template and fail if it errors
 helm_template() {
     local name="$1"
     shift
@@ -104,31 +105,60 @@ helm_template() {
     helm template test "$@" >/dev/null || fail "Helm template failed for $name"
 }
 
-# Master chart templates (single and active‑active)
-# helm_template "salt-master‑single" helm/salt-master  # Skipped due to template issue
-# helm_template "salt-master‑aa" helm/salt-master \
-#    --set agent.replicas=3 \
-#    --set agent.masterKeySecretName=my-master-key \
-#    --set service.perOrdinal.enabled=true
-# Expected failure when replicas>1 without masterKeySecretName (skipped)
+# Helper for configurations the chart must reject (it fails fast on purpose)
+helm_template_fails() {
+    local name="$1"
+    shift
+    echo "--- Helm template (must fail): $name"
+    if helm template test "$@" >/dev/null 2>&1; then
+        fail "Helm template unexpectedly succeeded for $name"
+    fi
+}
+
+# Master chart: classic single, classic multi-master, and cluster mode
+helm_template "salt-master-single" helm/salt-master
+helm_template "salt-master-multi" helm/salt-master \
+    --set agent.replicas=3 \
+    --set agent.masterKeySecretName=my-master-key
+helm_template "salt-master-cluster" helm/salt-master \
+    --set agent.cluster.enabled=true \
+    --set agent.replicas=3
+helm_template "salt-master-cluster-hostnetwork" helm/salt-master \
+    --set agent.cluster.enabled=true \
+    --set agent.cluster.hostNetwork=true \
+    --set agent.replicas=3
+helm_template_fails "salt-master hostNetwork without cluster mode" helm/salt-master \
+    --set agent.cluster.hostNetwork=true
+helm_template_fails "salt-master replicas>1 without a shared key" helm/salt-master \
+    --set agent.replicas=2
+helm_template_fails "salt-master cluster with one replica" helm/salt-master \
+    --set agent.cluster.enabled=true
 
 # Operator chart template (include CRDs)
 helm_template "salt-key-operator" helm/salt-key-operator --include-crds
+helm_template "salt-key-operator-clusterwide" helm/salt-key-operator --set clusterWide=true
 
-# Minion‑kubernetes chart variants
-# helm_template "minion‑k8s‑bundled" helm/salt-minion \
-#    --set agent.saltMasterHost=salt-master.example.com \
-#    --set agent.minion.keySecretName=my-minion-key
-# helm_template "minion‑k8s‑init‑container" helm/salt-minion \
-#    --set agent.saltMasterHost=salt-master.example.com \
-#    --set agent.minion.keySecretName=my-minion-key \
-#    --set agent.kubectl.bundled=false
-# helm_template "minion‑k8s‑multi" helm/salt-minion \
-#    --set agent.minion.keySecretName=my-minion-key \
-#    --set 'agent.saltMasterHost[0]=m0.example.com' \
-#    --set 'agent.saltMasterHost[1]=m1.example.com' \
-#    --set 'agent.saltMasterHost[2]=m2.example.com'
-# Expected failure when keySecretName is missing (skipped)
+# Minion chart: one minion, one key pair per pod, and several masters
+helm_template "salt-minion-single" helm/salt-minion \
+    --set agent.saltMasterHost=salt-master.example.com \
+    --set agent.minion.keySecretName=my-minion-key
+helm_template "salt-minion-per-pod-keys" helm/salt-minion \
+    --set agent.saltMasterHost=salt-master.example.com \
+    --set agent.replicas=3 \
+    --set agent.minion.idPrefix=ext-minion \
+    --set agent.minion.allowSelfGeneratedKey=true
+helm_template "salt-minion-multi-master" helm/salt-minion \
+    --set agent.minion.keySecretName=my-minion-key \
+    --set 'agent.saltMasterHost[0]=m0.example.com' \
+    --set 'agent.saltMasterHost[1]=m1.example.com' \
+    --set 'agent.saltMasterHost[2]=m2.example.com'
+helm_template_fails "salt-minion replicas>1 with a fixed minion id" helm/salt-minion \
+    --set agent.saltMasterHost=salt-master.example.com \
+    --set agent.replicas=2 \
+    --set agent.minion.id=fixed \
+    --set agent.minion.allowSelfGeneratedKey=true
+helm_template_fails "salt-minion without a key source" helm/salt-minion \
+    --set agent.saltMasterHost=salt-master.example.com
 
 #------------------------------------------------------------
 # 5. Build Docker images (single‑arch is fine locally)
@@ -141,7 +171,7 @@ sudo docker build --build-arg TARGETARCH=amd64 --build-arg INCLUDE_KUBECTL=false
 # Minion‑vcf image
 sudo docker build --build-arg TARGETARCH=amd64 -t salt-minion-vcf:${MINION_VCF_IMAGE_TAG} -f src/minion/vcf/Dockerfile src/minion/vcf
 # Operator image
-sudo docker build -t salt-key-operator:${IMAGE_TAG_MASTER} -f salt-key-operator/Dockerfile salt-key-operator
+sudo docker build -t salt-key-operator:${IMAGE_TAG_MASTER} -f src/salt-key-operator/Dockerfile src/salt-key-operator
 
 #------------------------------------------------------------
 # 6. Trivy vulnerability scan (high / critical only)

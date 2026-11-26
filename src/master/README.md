@@ -9,13 +9,17 @@ long-running Salt Master container does not communicate with the Kubernetes API 
 
 The image:
 
-- Uses Salt `3008.2` by default.
+- Uses Salt `3008.5` by default.
 - Runs as the non-root `salt` user with UID/GID `10001`.
 - Supports an optional corporate CA during image build.
 - Does not retain the build-time corporate CA in the final image.
-- Exposes Salt ports `4505` and `4506`.
-- Includes a Docker health check for both Salt ports.
+- Serves Salt on ports `4505` (publish) and `4506` (request/return). The Dockerfile has no
+  `EXPOSE` instruction, so publish the ports yourself (`--publish`).
+- Includes a Docker health check for both Salt ports. Kubernetes does not use it, and the
+  Helm chart defines no probes.
 - Supports externally supplied or Kubernetes-managed master keys.
+- Can run as a member of a Salt master cluster, configured through `SALT_CLUSTER_*`
+  environment variables (see "Environment variables"). The Helm chart sets these.
 
 See [CHANGELOG.md](CHANGELOG.md) for the Salt version included in each image release.
 
@@ -32,25 +36,25 @@ docker build \
 
 ### Build behind a corporate TLS proxy
 
-If HTTPS downloads require a corporate root certificate, export the trusted root certificate
-from the macOS Keychain:
+If HTTPS downloads require a corporate root certificate, obtain that certificate as a PEM file.
+For example, on macOS you can export it from the Keychain by its common name:
 
 ```bash
 security find-certificate \
   -a \
-  -c "Cloud Services Root CA" \
+  -c "<your corporate root CA common name>" \
   -p \
   "${HOME}/Library/Keychains/login.keychain-db" \
   /Library/Keychains/System.keychain \
   /System/Library/Keychains/SystemRootCertificates.keychain \
-  > /private/tmp/cloud-services-root-ca.crt
+  > /tmp/corporate-root-ca.crt
 ```
 
 Verify the certificate:
 
 ```bash
 openssl x509 \
-  -in /private/tmp/cloud-services-root-ca.crt \
+  -in /tmp/corporate-root-ca.crt \
   -noout \
   -subject \
   -issuer \
@@ -62,7 +66,7 @@ Build the image with the certificate supplied as a BuildKit secret:
 ```bash
 docker build \
   --platform linux/arm64 \
-  --secret id=build_ca,src=/private/tmp/cloud-services-root-ca.crt \
+  --secret id=build_ca,src=/tmp/corporate-root-ca.crt \
   --tag salt-master:local \
   ./src/master
 ```
@@ -74,14 +78,14 @@ is not persisted in the final runtime image.
 
 | Argument | Default | Purpose |
 | --- | --- | --- |
-| `SALT_VERSION` | `3008.2` | Salt version to install. Set it to another supported version or `latest` for the newest stable onedir release. |
+| `SALT_VERSION` | `3008.5` | Salt version to install. Set it to another supported version or `latest` for the newest stable onedir release. |
 
 Example:
 
 ```bash
 docker build \
   --platform linux/arm64 \
-  --build-arg SALT_VERSION=3008.2 \
+  --build-arg SALT_VERSION=3008.5 \
   --tag salt-master:local \
   ./src/master
 ```
@@ -111,7 +115,7 @@ docker run --rm \
 Expected:
 
 ```text
-salt-master 3008.2 (Argon)
+salt-master 3008.5 (Argon)
 ```
 
 Verify the runtime identity:
@@ -189,10 +193,42 @@ initialize the master key pair:
 | Variable | Effect |
 | --- | --- |
 | `SALT_AUTO_ACCEPT` | Sets Salt's `auto_accept` option. Leave unset or set to `false` when using Salt Key Operator. |
-| `SALT_MASTER_ID` | Sets the Salt Master `id`. The pod hostname is used when it is not supplied. |
+| `SALT_MASTER_ID` | Sets the Salt Master `id`. When it is not supplied, Salt chooses the id (derived from the host name), except in cluster mode where the entrypoint uses `SALT_CLUSTER_NODE_ADDRESS`. |
 | `SALT_PRESENCE_EVENTS` | Enables or disables Salt presence events. Defaults to `True`. |
-| `SALT_MASTER_PRIVATE_KEY_B64` | Optional base64-encoded master private key used when `master.pem` does not already exist. |
-| `SALT_MASTER_PUBLIC_KEY_B64` | Optional base64-encoded master public key used when `master.pub` does not already exist. |
+| `SALT_MASTER_PRIVATE_KEY_B64`, `SALT_MASTER_PUBLIC_KEY_B64` | Optional base64-encoded master key pair. Both must be set; they are written to `/etc/salt/pki/master` only when `master.pem` does not already exist there. The Helm chart does not use these; it supplies the keys as files. |
+
+The entrypoint also always writes `pidfile` and `sock_dir` under `/var/cache/salt/master`, because
+a non-root master cannot create directories under `/var/run`.
+
+### Master cluster variables
+
+Cluster mode (Salt 3007+; `SALT_CLUSTER_ISOLATED_FILESYSTEM` needs Salt 3008+) is enabled by
+setting `SALT_CLUSTER_ID`. The entrypoint then writes `/etc/salt/master.d/98-cluster.conf`
+(mode `0600`) and creates the cluster PKI directory. See the
+[Salt master cluster tutorial](https://docs.saltproject.io/en/3008/topics/tutorials/master-cluster.html).
+
+| Variable | Effect |
+| --- | --- |
+| `SALT_CLUSTER_ID` | Sets `cluster_id` and turns cluster mode on. Unset = classic master. |
+| `SALT_CLUSTER_PEERS` | Comma-separated peer host names. The entry whose short name equals this host's name is dropped, and each remaining one is resolved to an IP for `cluster_peers`. At least one peer must resolve or the container exits with an error. |
+| `SALT_CLUSTER_PEER_WAIT_SECONDS` | How long to wait for all peer names to resolve before continuing with those that did. Default `120`. |
+| `POD_NAME` | This pod's name, used to drop the master's own entry from the peer list (default: the short hostname, which is the node's name under `hostNetwork`). The chart sets it from the downward API. |
+| `SALT_CLUSTER_NODE_ADDRESS` | This master's own peer-reachable IP. Written as `interface:`, and as `id:` unless `SALT_MASTER_ID` is set. Salt uses `interface` as the node identity in cluster consensus, so it must be a real IP, not `0.0.0.0`. |
+| `SALT_CLUSTER_SECRET` | Sets `cluster_secret`, which authenticates masters joining the cluster. |
+| `SALT_CLUSTER_PKI_DIR` | Sets `cluster_pki_dir`. Default `/etc/salt/pki/cluster`. |
+| `SALT_CLUSTER_POOL_PORT` | Sets `cluster_pool_port` (peer-to-peer RPC). Salt's default applies when unset. |
+| `SALT_CLUSTER_ISOLATED_FILESYSTEM` | `true` sets `cluster_isolated_filesystem: True` (each master keeps its own PKI and cache). |
+| `SALT_CLUSTER_KEYS_CACHE_DRIVER` | Optional `keys.cache_driver`. Salt's default (`localfs_key`) applies when unset. |
+| `SALT_CLUSTER_AUTO_REPLACE_VOTERS` | Sets `cluster_auto_replace_voters` (`true`/`false`) when set. |
+| `SALT_CLUSTER_MIN_VOTERS` | Sets `cluster_min_voters` when set. |
+
+Known limitation: Salt 3008.5 identifies a cluster member by its `interface`, so
+`SALT_CLUSTER_NODE_ADDRESS` is the member's identity. If a member restarts with a different IP
+(as a Kubernetes pod does), it joins as a new member and its old identity remains a dead voter, so
+restarting members of a running cluster only works when each member keeps its IP: for example
+when it runs on the host network and always returns to the same node (the chart's
+`agent.cluster.hostNetwork`). Cluster mode needs at least two members;
+use three or more. Without `SALT_CLUSTER_ID` the image behaves as a classic single master.
 
 Additional configuration, pillar and state trees can be mounted as read-only volumes:
 
@@ -292,12 +328,12 @@ docker build \
   ./src/salt-key-operator
 ```
 
-Build Salt Master:
+Build Salt Master (omit the `--secret` line if you do not need a corporate CA):
 
 ```bash
 docker build \
   --platform linux/arm64 \
-  --secret id=build_ca,src=/private/tmp/cloud-services-root-ca.crt \
+  --secret id=build_ca,src=/tmp/corporate-root-ca.crt \
   --tag salt-master:local \
   ./src/master
 ```
@@ -328,7 +364,6 @@ helm template salt-master \
   --set salt-key-operator.image.repository=salt-key-operator \
   --set salt-key-operator.image.tag=local \
   --set salt-key-operator.image.pullPolicy=Never \
-  --set salt-key-operator.watchNamespace=salt-master \
   > /tmp/salt-master-rendered.yaml
 ```
 
@@ -356,7 +391,6 @@ helm upgrade --install salt-master \
   --set salt-key-operator.image.repository=salt-key-operator \
   --set salt-key-operator.image.tag=local \
   --set salt-key-operator.image.pullPolicy=Never \
-  --set salt-key-operator.watchNamespace=salt-master \
   --wait \
   --wait-for-jobs \
   --timeout 5m
@@ -372,14 +406,19 @@ kubectl get pods,jobs,secrets,configmaps,services \
 Expected pod state:
 
 ```text
-salt-key-operator   1/1   Running
-salt-master         2/2   Running
+salt-key-operator-...   1/1   Running
+salt-master-0           2/2   Running
 ```
+
+The master pod has two containers (`salt-master` and the `trusted-minions-sync` sidecar) when
+`agent.trustedMinions.enabled=true`, which is the chart default; with it disabled the pod is
+`1/1`. For more than one replica, or cluster mode, see the
+[chart README](../../helm/salt-master/README.md).
 
 Verify Salt Master:
 
 ```bash
-kubectl exec deployment/salt-master \
+kubectl exec salt-master-0 \
   --namespace salt-master \
   --container salt-master \
   -- salt-key -L
@@ -395,8 +434,14 @@ master.pem
 master.pub
 ```
 
-The Secret is mounted read-only. An init container copies the key pair into a writable
-`emptyDir`, applies the required ownership and permissions, and then exits.
+This is classic mode. The Secret is mounted read-only (mode `0440`). The `prepare-master-keys`
+init container runs as the same non-root user as the master (UID/GID `10001`), copies the key pair
+into a writable `emptyDir`, sets the file modes and exits. To supply your own key pair, create a
+Secret with the same two keys and set `agent.masterKeySecretName`; this is required when running
+more than one classic replica, so that all of them share one key pair.
+
+In cluster mode (`agent.cluster.enabled=true`) the key-generation Job and this Secret are not
+used: each master generates its own key pair and keeps it on its own persistent volume.
 
 The long-running Salt Master container runs as UID/GID `10001` and does not require Kubernetes
 API access.
@@ -404,8 +449,8 @@ API access.
 The key-generation Job is the only component that requires a service-account token. The normal
 Salt Master ServiceAccount has automatic token mounting disabled.
 
-The master key Secret is reused across pod restarts, allowing the Salt Master to retain the same
-identity.
+In classic mode the master key Secret is reused across pod restarts, so the Salt Master keeps the
+same identity.
 
 Verify that the Secret and running pod use the same public key:
 
@@ -418,7 +463,7 @@ kubectl get secret salt-master-master-keys \
 ```
 
 ```bash
-kubectl exec deployment/salt-master \
+kubectl exec salt-master-0 \
   --namespace salt-master \
   --container salt-master \
   -- sha256sum /etc/salt/pki/master/master.pub
@@ -438,7 +483,8 @@ agent:
 
 minion acceptance is managed declaratively through Salt Key Operator.
 
-Do not use `salt-key -a` in this mode. Create a `SaltMinionKey` resource instead:
+This is the chart default. Do not use `salt-key -a` in this mode: the sidecar removes any key that
+is not in the ConfigMap again. Create a `SaltMinionKey` resource instead:
 
 ```yaml
 apiVersion: salt.saltstack.io/v1alpha1
@@ -472,7 +518,7 @@ refresh plus the configured sidecar polling interval, which defaults to 15 secon
 List accepted keys:
 
 ```bash
-kubectl exec deployment/salt-master \
+kubectl exec salt-master-0 \
   --namespace salt-master \
   --container salt-master \
   -- salt-key -L
@@ -485,17 +531,20 @@ The image and Helm chart apply the following security controls:
 - Salt Master runs as non-root UID/GID `10001`.
 - The long-running containers disable privilege escalation.
 - The long-running containers drop all Linux capabilities.
-- The temporary init container receives only the capabilities required to copy and secure the
-  master keys.
-- The master private key is stored in a Kubernetes Secret.
+- The init containers (`prepare-master-keys`, or `prepare-cluster-dirs` in cluster mode) also run
+  non-root with all capabilities dropped. They create the directories they need as UID/GID
+  `10001`, relying on the pod `fsGroup: 10001` to make volumes group-writable. A volume you
+  supply yourself must already be writable by that user.
+- The master private key is stored in a Kubernetes Secret (classic mode).
 - The private key is written with mode `0400`.
 - The public key is written with mode `0644`.
-- The Secret source volume remains read-only.
+- The Secret source volume remains read-only and is mounted with mode `0440`.
 - The normal Salt Master pod does not automatically receive a Kubernetes service-account token.
 - The key-generation Job receives a service-account token only because it must create the Secret.
 - The corporate CA is supplied as a temporary BuildKit secret and is not retained in the final
   image.
 - Automatic minion acceptance is disabled by default for the Helm deployment.
+- In cluster mode, keep the peer port (`4520` by default) inside the cluster.
 - Trusted keys are managed through `SaltMinionKey` resources when Salt Key Operator is enabled.
 
 ## Why the runtime changes were required
@@ -505,8 +554,8 @@ different from the UID declared by the image. The image therefore normalizes the
 group to UID/GID `10001` and assigns ownership of Salt's writable directories to that identity.
 
 Kubernetes Secret volumes are read-only, but Salt Master must create and update directories under
-`/etc/salt/pki/master`. The Helm chart therefore mounts the Secret separately and uses an init
-container to copy the master key pair into a writable volume.
+`/etc/salt/pki/master`. The Helm chart therefore mounts the Secret separately and uses a non-root
+init container to copy the master key pair into a writable volume.
 
 Kubernetes ConfigMap files are symbolic links, while Salt 3008 rejects symlinked key files as a
 PKI hardening measure. The trusted-minions sidecar converts the mounted ConfigMap entries into
@@ -517,7 +566,8 @@ The Docker health check observes the existing Salt Master process by checking po
 
 ## Validation performed
 
-The following validations were completed successfully:
+The following validations were completed on the original Deployment-based chart (classic,
+single master):
 
 - Helm linting for Salt Master and Salt Key Operator.
 - Kubernetes client-side validation of the rendered Helm resources.
@@ -529,7 +579,7 @@ The following validations were completed successfully:
 - Clean Helm installation into a new namespace.
 - Master-key generation Job completion.
 - Master-key hash comparison between the Secret and running pod.
-- Master identity persistence after a Deployment restart.
+- Master identity persistence after a pod restart.
 - Declarative acceptance of a generated test key named `integration-test-minion`.
 - Propagation of the accepted key into Salt as a regular file.
 - Removal of the accepted key after deleting its `SaltMinionKey`.
@@ -540,5 +590,11 @@ run an end-to-end command such as:
 ```bash
 salt '*' test.ping
 ```
+
+Master cluster mode (the `SALT_CLUSTER_*` variables and the chart's `agent.cluster.*` values) was
+tested on a real cluster with 3 replicas and isolated storage. Not tested: shared storage,
+minions connecting through the cluster, node failure, and restarting a cluster member (which is a
+known limitation, see "Master cluster variables"). The StatefulSet-based classic mode was
+rendered with Helm but its live testing is not recorded here.
 
 A real Salt Minion connectivity test can be added as a separate integration test.

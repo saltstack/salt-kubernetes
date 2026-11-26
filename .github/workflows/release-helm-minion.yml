@@ -29,7 +29,7 @@ jobs:
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             TAG_NAME=${GITHUB_REF#refs/tags/}
-            VERSION=${TAG_NAME#chart-minion-v}
+            VERSION=${TAG_NAME#chart-salt-minion-v}
             echo "is_tag=true" >> $GITHUB_OUTPUT
           else
             VERSION="0.0.0-snapshot"
@@ -60,7 +60,7 @@ jobs:
 
       - name: Push Helm Chart OCI Artifact to GHCR
         run: |
-          helm push .dist/salt-minion-${{env.CLEAN_VERSION}}.tgz oci://ghcr.io/${{ steps.vars.outputs.registry_owner }}//helm
+          helm push .dist/salt-minion-${{env.CLEAN_VERSION}}.tgz oci://ghcr.io/${{ steps.vars.outputs.registry_owner }}/helm
 
       - name: Create GitHub Release
         if: steps.vars.outputs.is_tag == 'true'

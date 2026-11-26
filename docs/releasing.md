@@ -1,79 +1,106 @@
 # Releasing
 
-This is a monorepo with several independently-versioned images and charts, so
-there is no single repo-wide release tag. Each component is released by
-pushing a tag scoped to that component; only that component's workflow
-fires.
+This is a monorepo with independently versioned images and charts. There is
+no repo-wide release tag: pushing a tag scoped to one component fires only
+that component's workflow (`.github/workflows/release-*.yml`).
 
-All artifacts publish to GHCR under `ghcr.io/saltstack/salt-kubernetes/...`
-(GitHub Container Registry — public, no extra credentials to set up, and
-already the pattern this project used before it moved into this monorepo).
+Everything publishes to GHCR under the repository owner (`ghcr.io/<owner>/...`,
+`ghcr.io/saltstack/...` for the upstream repository).
 
-## Docker images
+## What the workflows do
 
-Each image installs a pinned Salt version (`ARG SALT_VERSION`) plus, for the
-two minion images, a pinned set of Salt extensions from PyPI
-(`salt-extensions.txt`). **The release tag is an independent semver for the
-image — it does not encode the Salt/extension versions.** Check each
-component's own `CHANGELOG.md` for exactly what a given tag carries before
-assuming.
+The workflows do **not** read `CHANGELOG.md`, `Chart.yaml` or any version file
+to decide what to publish: the version is whatever follows the tag prefix.
+Keep the changelog entry in the same pull request that changes the component,
+and add the release heading before tagging; nothing enforces it.
 
-| Component | Tag to push | Publishes to | Changelog |
+### Docker images
+
+| Component | Source | Tag to push | Published as |
 | --- | --- | --- | --- |
-| `docker/salt-master` | `salt-master-image/vX.Y.Z` | `ghcr.io/saltstack/salt-kubernetes/salt-master:X.Y.Z` (and `:latest`) | [`docker/salt-master/CHANGELOG.md`](../docker/salt-master/CHANGELOG.md) |
-| `salt-minion-vcf` | `salt-minion-vcf-image/vX.Y.Z` | `ghcr.io/saltstack/salt-kubernetes/salt-minion-vcf:X.Y.Z` (and `:latest`) | [`salt-minion-vcf/CHANGELOG.md`](../salt-minion-vcf/CHANGELOG.md) |
-| `salt-minion-kubernetes` | `salt-minion-kubernetes-image/vX.Y.Z` | `ghcr.io/saltstack/salt-kubernetes/salt-minion-kubernetes:X.Y.Z` (and `:latest`) | [`salt-minion-kubernetes/CHANGELOG.md`](../salt-minion-kubernetes/CHANGELOG.md) |
-| `salt-key-operator` | `salt-key-operator-image/vX.Y.Z` | `ghcr.io/saltstack/salt-kubernetes/salt-key-operator:X.Y.Z` (and `:latest`) | [`salt-key-operator/CHANGELOG.md`](../salt-key-operator/CHANGELOG.md) |
+| Master | `src/master` | `salt-master-vX.Y.Z` | `ghcr.io/<owner>/salt-master:X.Y.Z` and `:latest` |
+| Minion (Kubernetes) | `src/minion/kubernetes` | `salt-minion-vX.Y.Z` | `ghcr.io/<owner>/salt-minion:X.Y.Z` and `:latest` |
+| Minion (VCF) | `src/minion/vcf` | `salt-minion-vcf-vX.Y.Z` | `ghcr.io/<owner>/salt-minion-vcf:X.Y.Z` and `:latest` |
+| Key operator | `src/salt-key-operator` | `salt-key-operator-vX.Y.Z` | `ghcr.io/<owner>/salt-key-operator:X.Y.Z` and `:latest` |
 
-Each release workflow refuses to publish unless the tag's version already
-has a matching heading in that component's `CHANGELOG.md` — add the entry
-(Salt version + extension versions) *before* tagging, not after:
+Each run builds the image for `linux/amd64`, scans it with Trivy (log-only: a
+finding does not stop the release), pushes `linux/amd64` and `linux/arm64`
+images, and creates a GitHub Release for the tag. Salt and extension
+versions come from the Dockerfile (`ARG SALT_VERSION`, currently `3008.5`) and
+`salt-extensions.txt`, not from the tag. The tag is the image's own semver, so
+read the component's `CHANGELOG.md` for what a tag carries.
 
-```bash
-# 1. Bump versions (Dockerfile ARG SALT_VERSION / salt-extensions.txt) if needed.
-# 2. Add a "## salt-master-image/v1.0.1" heading to docker/salt-master/CHANGELOG.md.
-# 3. Then:
-git tag salt-master-image/v1.0.1
-git push origin salt-master-image/v1.0.1
-```
+### Helm charts
 
-## Helm charts
+| Chart | Tag to push | Published as |
+| --- | --- | --- |
+| `helm/salt-master` | `chart-salt-master-vX.Y.Z` | `oci://ghcr.io/<owner>/helm/salt-master:X.Y.Z` |
+| `helm/salt-minion` | `chart-salt-minion-vX.Y.Z` | `oci://ghcr.io/<owner>/helm/salt-minion:X.Y.Z` |
+| `helm/salt-key-operator` | `chart-salt-key-operator-vX.Y.Z` | `oci://ghcr.io/<owner>/helm/salt-key-operator:X.Y.Z` |
 
-Charts publish as OCI artifacts to the *same* registry, under a `charts/`
-subpath — no separate `helm repo add` or `gh-pages` branch needed. The tag's
-version must exactly match the chart's `version:` in `Chart.yaml`, and have a
-matching `CHANGELOG.md` heading, or the release workflow fails before
-pushing anything.
+On the runner, the workflow rewrites `version:` and `appVersion:` in the
+chart's `Chart.yaml` to the tag's version, packages the chart and pushes it
+(the master workflow runs `helm dependency build` first so the operator
+subchart is bundled). The rewritten `Chart.yaml` is not committed, so the
+`version:` in the repository can differ from what was published. The image
+tags a chart defaults to come from `values.yaml` and are not changed by the
+workflow: update `values.yaml` in a commit before tagging.
 
-| Component | Tag to push | Publishes to | Changelog |
-| --- | --- | --- | --- |
-| `salt-master-kubernetes` | `salt-master-kubernetes-chart/vX.Y.Z` | `oci://ghcr.io/saltstack/salt-kubernetes/charts/salt-master-kubernetes:X.Y.Z` | [`salt-master-kubernetes/CHANGELOG.md`](../salt-master-kubernetes/CHANGELOG.md) |
-| `salt-minion-kubernetes` | `salt-minion-kubernetes-chart/vX.Y.Z` | `oci://ghcr.io/saltstack/salt-kubernetes/charts/salt-minion-kubernetes:X.Y.Z` | [`salt-minion-kubernetes/CHANGELOG.md`](../salt-minion-kubernetes/CHANGELOG.md) |
-| `salt-minion-vcf` (chart) | `salt-minion-vcf-chart/vX.Y.Z` | `oci://ghcr.io/saltstack/salt-kubernetes/charts/salt-minion-vcf:X.Y.Z` | [`salt-minion-vcf/helm/salt-minion-vcf/CHANGELOG.md`](../salt-minion-vcf/helm/salt-minion-vcf/CHANGELOG.md) |
-| `salt-key-operator` (chart) | `salt-key-operator-chart/vX.Y.Z` | `oci://ghcr.io/saltstack/salt-kubernetes/charts/salt-key-operator:X.Y.Z` | [`salt-key-operator/helm/salt-key-operator/CHANGELOG.md`](../salt-key-operator/helm/salt-key-operator/CHANGELOG.md) |
+### Scheduled and manual runs
 
-```bash
-# 1. Bump version: in the chart's Chart.yaml.
-# 2. Add a "## salt-master-kubernetes-chart/v0.1.0" heading to its CHANGELOG.md
-#    noting which image version it now defaults to.
-# 3. Then:
-git tag salt-master-kubernetes-chart/v0.1.0
-git push origin salt-master-kubernetes-chart/v0.1.0
-```
+Every release workflow also has a weekly `schedule` (Mondays, UTC) and
+`workflow_dispatch`. Without a tag the Docker workflows build and push
+`:latest`, and the chart workflows push version `0.0.0-snapshot`. They create
+no GitHub Release in that case.
+
+## Cutting a release
+
+1. Update the component: `Chart.yaml`/`values.yaml` (chart) or the
+   Dockerfile/`salt-extensions.txt` (image), and add the `CHANGELOG.md` entry.
+2. Merge to `main`. Pull request CI (see the root `README.md`) must pass.
+3. Tag the merge commit and push the tag, for example:
+   ```bash
+   git tag salt-master-v1.1.0
+   git push origin salt-master-v1.1.0
+   ```
+   or use the interactive helpers `scripts/release-docker-tags.sh` and
+   `scripts/release-helm-tags.sh`. Both scripts check out and pull `main`, and **delete and
+   re-create** a tag that already exists, locally and on the remote. Read their
+   prompts before confirming.
+4. Watch the workflow run on GitHub.
 
 Installing a published chart:
 
 ```bash
-helm install salt-master-kubernetes \
-  oci://ghcr.io/saltstack/salt-kubernetes/charts/salt-master-kubernetes \
-  --version 1.0.0 \
-  -f my-values.yaml
+helm install salt-master oci://ghcr.io/<owner>/helm/salt-master \
+  --version X.Y.Z --namespace salt-master --create-namespace \
+  --set agent.image.repository=ghcr.io/<owner>/salt-master \
+  --set agent.image.tag=<image version>
 ```
 
 ## First-time setup
 
-GHCR packages created via `GITHUB_TOKEN` default to **private** on first
-push. After the first release of each component, go to the package's
-settings on GitHub (org → Packages) and set visibility to **public**, and
-link it to this repository if it isn't already — otherwise consumers can't
-`docker pull` / `helm pull` it anonymously.
+GHCR packages created with `GITHUB_TOKEN` are private on first push. After the
+first release of each image or chart, set the package visibility to public in
+the organisation's package settings and link it to this repository. Otherwise
+anonymous `docker pull` and `helm pull` fail.
+
+## Tag names and default images
+
+- Image and chart tags use the package name: `salt-minion-vX.Y.Z` for the image and
+  `chart-salt-minion-vX.Y.Z` for the chart (likewise `salt-master-`, `salt-key-operator-`
+  and `salt-minion-vcf-`). The Kubernetes minion workflow matches `salt-minion-v[0-9]*`:
+  a digit has to follow the `v`, so a `salt-minion-vcf-vX.Y.Z` tag starts only the VCF
+  workflow. Each tag therefore starts exactly one workflow.
+  `scripts/release-docker-tags.sh` and `scripts/release-helm-tags.sh` create these same
+  tag names.
+- The default image repositories in the charts point at where the image
+  workflows publish: `ghcr.io/saltstack/salt-minion`, `ghcr.io/saltstack/salt-minion-vcf`
+  and `ghcr.io/saltstack/salt-key-operator`. A default only works once an image
+  with that tag has been released (and its package made public, see above); the
+  master chart's default repository is the unqualified `salt-master` on purpose, so a
+  locally built image can be used as is.
+- The tag `salt-minion-kubernetes-v0.1.0` that already exists on the remote matches no
+  workflow, so no Kubernetes minion image was ever published for it. Release the
+  Kubernetes minion image with a new `salt-minion-vX.Y.Z` tag (for example
+  `salt-minion-v0.1.2`, see the minion image changelog).

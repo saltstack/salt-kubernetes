@@ -4,21 +4,21 @@ Check the operator is running:
   kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
 
 This does NOT do anything on its own yet - it only reconciles SaltMinionKey
-objects in namespaces where a salt-master-kubernetes release's trusted-
-minions ConfigMap already exists. On the salt-master-kubernetes side,
+objects in namespaces where a salt-master release's trusted-
+minions ConfigMap already exists. On the salt-master side,
 install/upgrade that chart with:
   agent.trustedMinions.enabled=true
 
-{{- if .Values.watchNamespace }}
+{{- with include "salt-key-operator.watchNamespace" . }}
 
-This operator only watches namespace "{{ .Values.watchNamespace }}"
-(watchNamespace) - make sure that's where your salt-master-kubernetes
-release and SaltMinionKey objects live, or set watchNamespace="" for
-cluster-wide watching instead.
+This operator only watches namespace "{{ . }}" (the release namespace unless
+watchNamespace is set) - make sure that's where your salt-master release and
+SaltMinionKey objects live, or set clusterWide=true for cluster-wide watching
+instead.
 {{- end }}
 
 To trust a minion (replacing `salt-key -a <minion-id>`), apply a
-SaltMinionKey in the SAME namespace as the target salt-master-kubernetes
+SaltMinionKey in the SAME namespace as the target salt-master
 release:
 
   apiVersion: salt.saltstack.io/v1alpha1

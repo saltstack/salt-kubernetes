@@ -8,7 +8,7 @@ RUNTIME_CONFIG="${CONFIG_DIR}/20-runtime.conf"
 mkdir -p "$CONFIG_DIR" /etc/salt/pki/minion /var/cache/salt/minion/.socks /var/log/salt
 
 # Pre-seed the minion's own RSA keypair when supplied - same pattern as
-# salt-minion-vcf/scripts/docker-entrypoint.sh. Only applied when
+# src/minion/kubernetes/entrypoint.sh. Only applied when
 # minion.pem doesn't already exist, so a restarted/rescheduled container
 # (persistent PKI volume) keeps its established identity rather than
 # re-seeding on every start.
@@ -45,7 +45,7 @@ if [ -n "${SALT_MASTER:-}" ]; then
 
   # A comma-separated SALT_MASTER (e.g. "master-0,master-1,master-2")
   # renders as a YAML list instead of a scalar - Salt's native multi-master
-  # mode (https://docs.saltproject.io/en/3006/topics/tutorials/multimaster.html):
+  # mode (https://docs.saltproject.io/en/3008/topics/tutorials/multimaster.html):
   # one independent, simultaneous connection per address, not failover.
   case "${SALT_MASTER}" in
     *,*)
@@ -93,7 +93,7 @@ elif [ ! -s "$MASTER_CONFIG" ]; then
   exit 64
 fi
 
-# FIPS-compliant crypto defaults - see salt-minion-vcf/scripts/docker-entrypoint.sh
+# FIPS-compliant crypto defaults - see src/minion/kubernetes/entrypoint.sh
 # for the full rationale (masters running FIPS-validated crypto don't
 # implement SHA-1 for RSA OAEP/PKCS1v15, which breaks auth with a minion
 # defaulting to it). Set SALT_FIPS_MODE=false only if your target master is
@@ -108,7 +108,7 @@ EOF
 fi
 
 # Deliberately does NOT set pillar_roots or touch /srv/pillar: the
-# salt-minion-kubernetes chart's kube_bench.sls ConfigMap is consumed via the
+# salt-minion chart's kube_bench.sls ConfigMap is consumed via the
 # Master's own pillar_roots (see chart README "kube-bench coordination"), not
 # a local pillar tree - unlike salt-minion-vcf, which is meant to run
 # disconnected enough to need one.
@@ -124,13 +124,13 @@ pidfile: /var/cache/salt/minion/minion.pid
 sock_dir: /var/cache/salt/minion/.socks
 
 grains:
-  managed_by: salt-minion-kubernetes
+  managed_by: salt-minion
 EOF
 
 # Optional Vault integration (saltext.vault): configures the 'vault' auth/
 # server block plus an sdb profile so pillar values can reference
 # sdb://vault_sdb/<path>:<key> instead of containing plaintext secrets. Same
-# shape as salt-minion-vcf/scripts/docker-entrypoint.sh.
+# shape as src/minion/kubernetes/entrypoint.sh.
 if [ -n "${VAULT_ADDR:-}" ]; then
   if [ -n "${VAULT_SECRET_ID_FILE:-}" ] && [ -f "${VAULT_SECRET_ID_FILE}" ]; then
     VAULT_SECRET_ID="$(cat "${VAULT_SECRET_ID_FILE}")"

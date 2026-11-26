@@ -1,22 +1,21 @@
 # syntax=docker/dockerfile:1
 #
-# Self-contained Salt minion image for salt-minion-kubernetes: core Salt plus
-# saltext.vault and saltext.kubernetes, both pip-installed from PyPI (same
-# pattern as salt-minion-vcf/Dockerfile) rather than requiring a checkout of
-# any extension's own repo as build context.
+# Self-contained Salt minion image with VCF automation support: core Salt plus
+# the extensions in salt-extensions.txt, pip-installed from PyPI (same pattern
+# as src/minion/kubernetes/Dockerfile) rather than requiring a checkout of any
+# extension's own repo as build context.
 FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
-# Pinned rather than "latest" so a given salt-minion-kubernetes-image release
-# tag reproducibly carries one specific Salt version - see CHANGELOG.md.
-ARG SALT_VERSION=3008.2
+# Pinned rather than "latest" so a given image release tag reproducibly carries
+# one specific Salt version - see helm/salt-minion/CHANGELOG.md.
+ARG SALT_VERSION=3008.5
 ARG SALT_UID=10001
 ARG SALT_GID=10001
 ARG SALT_HOME=/opt/saltstack/salt
 ARG SALT_SHELL=/usr/sbin/nologin
 
-# Bundles kubectl directly into the image so the salt-minion-kubernetes chart
-# can skip its install-kubectl init container (agent.kubectl.bundled: true).
+# Optionally bundles kubectl directly into the image (INCLUDE_KUBECTL).
 ARG INCLUDE_KUBECTL=true
 ARG KUBECTL_VERSION=v1.30.2
 ARG TARGETARCH
@@ -35,8 +34,6 @@ ARG PIP_ONLY_BINARY=""
 # empty to use the public defaults (Ubuntu's own mirrors, Broadcom's public
 # Artifactory).
 ARG APT_MIRROR=""
-ARG SALT_GPG_KEY_URL="https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public"
-ARG SALT_APT_REPO_URL="https://packages.broadcom.com/artifactory/saltproject-deb"
 
 LABEL org.opencontainers.image.title="Salt Minion VCF"
 LABEL org.opencontainers.image.description="Portable Salt Minion runtime with configurable Salt extensions for VMware Cloud Foundation automation"
@@ -110,7 +107,7 @@ RUN set -eu; \
     rm -f /tmp/salt-extensions.txt /tmp/salt-constraint.txt /tmp/salt-packages.txt
 
 # Bundled so this image needs no separate init container to reach the
-# Kubernetes API - see salt-minion-kubernetes/values.yaml (agent.kubectl.bundled).
+# Kubernetes API.
 RUN if [ "$INCLUDE_KUBECTL" = "true" ]; then \
         set -eu; \
         curl -fsSL -o /usr/local/bin/kubectl \
