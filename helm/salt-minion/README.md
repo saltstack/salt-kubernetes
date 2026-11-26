@@ -24,7 +24,7 @@ docker build -t salt-minion:local ./src/minion/kubernetes
 
 See [`src/minion/README.md`](../../src/minion/README.md) for build arguments and
 [`CHANGELOG.md`](CHANGELOG.md) for which Salt and extension versions each image
-release carries. The default `agent.image.tag` is an image release tag (`0.1.0`), not a
+release carries. The default `agent.image.tag` is an image release tag (`0.2.0`), not a
 Salt version.
 
 ## Deployment Modes
@@ -213,7 +213,7 @@ See [values.yaml](values.yaml) for the complete list of configuration options.
 | `agent.podSecurityContext` | Pod security context; `fsGroup` gives the containers access to the key Secret and the PKI volume | `{"fsGroup": 10001, "runAsNonRoot": true}` |
 | `agent.containerSecurityContext` | Security context shared by the minion and the `prepare-minion-keys` init container | `{"allowPrivilegeEscalation": false, "runAsNonRoot": true, "capabilities": {"drop": ["ALL"]}}` |
 | `agent.image.repository` | Minion image repository | `ghcr.io/saltstack/salt-minion` |
-| `agent.image.tag` | Minion image tag | `0.1.0` |
+| `agent.image.tag` | Minion image tag | `0.2.0` |
 | `agent.image.pullPolicy` | Minion image pull policy | `IfNotPresent` |
 | `agent.image.imagePullSecrets` | Pull Secrets for the minion pods | `[]` |
 | `keygen.image.repository` | Key generation image (needs `kubectl` and `openssl`) | `bitnami/kubectl` |

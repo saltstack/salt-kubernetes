@@ -8,8 +8,9 @@ versions it carries — check here. The release tags are `salt-minion-vX.Y.Z` fo
 
 ## Image releases (`salt-minion-image/vX.Y.Z`)
 
-### Unreleased
-Applies to both `src/minion/kubernetes` and `src/minion/vcf`.
+### salt-minion-image/v0.2.0
+Applies to both `src/minion/kubernetes` (tag `salt-minion-v0.2.0`) and `src/minion/vcf` (tag
+`salt-minion-vcf-v0.2.0`).
 - **Fix: installing the Salt extensions no longer replaces the onedir Salt.** The
   extensions (for example `saltext.kubernetes`) require `salt>=3006`, and pip does not
   count the bootstrap-installed onedir Salt as satisfying that, so it downloaded
@@ -36,9 +37,6 @@ Applies to both `src/minion/kubernetes` and `src/minion/vcf`.
 - Removed the unused `SALT_GPG_KEY_URL` and `SALT_APT_REPO_URL` build arguments, and corrected
   comments that still named the old chart and file paths.
 
-### salt-minion-image/v0.1.2
-- Salt: 3008.5 (no other change)
-
 ### salt-minion-image/v0.1.1
 - Salt: 3008.2
 - Extensions: saltext.kubernetes==2.1.0, saltext.vault==1.8.0
@@ -59,8 +57,9 @@ Applies to both `src/minion/kubernetes` and `src/minion/vcf`.
 
 ## Chart releases (`salt-minion-chart/vX.Y.Z`)
 
-### Unreleased
+### salt-minion-chart/v0.2.0
 **Breaking - reinstall rather than `helm upgrade` from any earlier release.**
+- The default image is `ghcr.io/saltstack/salt-minion:0.2.0`.
 - `Deployment` -> `StatefulSet` (`templates/deployment.yaml` is now `templates/statefulset.yaml`),
   so every replica gets a stable, unique identity. The StatefulSet is named
   `agent.minion.idPrefix` (default `salt-minion`) and uses `podManagementPolicy: Parallel`.

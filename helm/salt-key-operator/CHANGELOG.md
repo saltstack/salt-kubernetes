@@ -6,7 +6,7 @@ headings below use the older `salt-key-operator-chart/vX.Y.Z` naming. The chart'
 version is independent of the image version it happens to default to —
 check here, not the tag number.
 
-## Unreleased
+## salt-key-operator-chart/v0.2.0
 - **`watchNamespace` now defaults to the release namespace** (empty), not the fixed `salt-master`,
   and cluster-wide watching is the explicit `clusterWide: true` (it used to be `watchNamespace: ""`).
   The Deployment goes into the release namespace but the Role and RoleBinding went into

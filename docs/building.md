@@ -22,7 +22,7 @@ docker build -t salt-key-operator:0.1.0 src/salt-key-operator
 ```
 
 Image names and tags are your choice. The chart defaults are
-`salt-master:3008.5` (master), `ghcr.io/saltstack/salt-minion:0.1.0`
+`salt-master:3008.5` (master), `ghcr.io/saltstack/salt-minion:0.2.0`
 (minion) and `ghcr.io/saltstack/salt-key-operator:0.1.0` (operator), so
 override the image values when you use your own build (see below).
 

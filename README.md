@@ -106,7 +106,7 @@ helm install salt-minion helm/salt-minion \
 ```
 
 The minion chart's default image is
-`ghcr.io/saltstack/salt-minion:0.1.0`; set
+`ghcr.io/saltstack/salt-minion:0.2.0`; set
 `agent.image.repository`/`agent.image.tag` to use the image you built. The
 master chart's default is the unqualified `salt-master:3008.5`.
 
